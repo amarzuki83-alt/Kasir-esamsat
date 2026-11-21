@@ -22,15 +22,11 @@ interface TransactionData {
   noBukti: string;
   atasNama: string;
   noPolisi: string;
-  jenisKendaraan: string;
-  tipeKendaraan: string;
-  merekKendaraan: string;
   warnaKendaraan: string;
-  tahunBuat: string;
   tanggalMasaLaku: string;
   pkbPokok: number;
   jrPokok: number;
-  perkiraanKendaraan: number;
+  jrDenda: number;
   noMesin: string;
   tagihan: number;
   biayaAdmin: number;
@@ -75,15 +71,11 @@ export default function App() {
     noBukti: 'TRX-' + Math.floor(10000000 + Math.random() * 90000000),
     atasNama: 'BUDI SANTOSO',
     noPolisi: 'L 1234 AB',
-    jenisKendaraan: 'Roda 4 (Minibus)',
-    tipeKendaraan: 'ALL NEW AVANZA G',
-    merekKendaraan: 'TOYOTA',
     warnaKendaraan: 'HITAM METALIK',
-    tahunBuat: '2021',
     tanggalMasaLaku: '15-11-2027',
     pkbPokok: 2450000,
     jrPokok: 143000,
-    perkiraanKendaraan: 50000,
+    jrDenda: 50000,
     noMesin: '1NR-FE1234567',
     tagihan: 2643000,
     biayaAdmin: settings.biayaAdmin,
@@ -153,7 +145,7 @@ export default function App() {
 
   // Recalculate total when tagihan or fees change
   useEffect(() => {
-    const subtotal = Number(formData.pkbPokok) + Number(formData.jrPokok) + Number(formData.perkiraanKendaraan);
+    const subtotal = Number(formData.pkbPokok) + Number(formData.jrPokok) + Number(formData.jrDenda);
     const total = subtotal + Number(formData.biayaAdmin) + Number(formData.cetakEtbpkp);
     setFormData(prev => ({
       ...prev,
@@ -163,7 +155,7 @@ export default function App() {
       cetakEtbpkp: settings.cetakEtbpkp,
       namaAgen: settings.namaAgen
     }));
-  }, [formData.pkbPokok, formData.jrPokok, formData.perkiraanKendaraan, settings]);
+  }, [formData.pkbPokok, formData.jrPokok, formData.jrDenda, settings]);
 
   const handleInstallClick = async () => {
     if (!deferredPrompt) {
@@ -233,9 +225,11 @@ export default function App() {
     let extractedAtasNama = '';
     let extractedNoPolisi = '';
     let extractedNoRef = '';
-    let extractedNoBukti = '';
+    let extractedBuktiBayar = '';
+    let extractedNoMesin = '';
     let extractedPkb = 0;
     let extractedJr = 0;
+    let extractedJrDenda = 0;
 
     for (const line of lines) {
       const upperLine = line.toUpperCase();
@@ -261,14 +255,31 @@ export default function App() {
         const match = rightVal.match(/[\d\w]{5,20}/);
         if (match) extractedNoRef = match[0];
       } else if (leftKey.includes('BUKTI') || leftKey.includes('BAYAR') || leftKey.includes('STRUK')) {
-        const match = rightVal.match(/[\d]{6,16}/);
-        if (match) extractedNoBukti = match[0];
+        if (rightVal) extractedBuktiBayar = rightVal.replace(/[^\d]/g, '');
+        else {
+          const match = upperLine.match(/[\d]{6,16}/);
+          if (match) extractedBuktiBayar = match[0];
+        }
+      } else if (leftKey.includes('MESIN') || leftKey.includes('RANGKA')) {
+        if (rightVal) extractedNoMesin = rightVal;
+        else {
+          const clean = upperLine.replace(/MESIN|RANGKA/g, '').replace(/[:|]/g, '').trim();
+          if (clean) extractedNoMesin = clean;
+        }
       } else if (leftKey.includes('PKB') || leftKey.includes('PAJAK')) {
         const match = rightVal.match(/[\d]{1,3}(?:[.,]\d{3})+|\d{4,9}/);
         if (match) extractedPkb = parseInt(match[0].replace(/[^\d]/g, ''), 10);
       } else if (leftKey.includes('JASA') || leftKey.includes('RAHARJA') || leftKey.includes('JR')) {
-        const match = rightVal.match(/[\d]{1,3}(?:[.,]\d{3})+|\d{4,9}/);
-        if (match) extractedJr = parseInt(match[0].replace(/[^\d]/g, ''), 10);
+        if (leftKey.includes('DENDA')) {
+          const match = rightVal.match(/[\d]{1,3}(?:[.,]\d{3})+|\d{1,8}/);
+          if (match) extractedJrDenda = parseInt(match[0].replace(/[^\d]/g, ''), 10);
+        } else {
+          const match = rightVal.match(/[\d]{1,3}(?:[.,]\d{3})+|\d{4,9}/);
+          if (match) extractedJr = parseInt(match[0].replace(/[^\d]/g, ''), 10);
+        }
+      } else if (leftKey.includes('DENDA') || leftKey.includes('SWDKLLJ') || leftKey.includes('PERKIRAAN')) {
+        const match = rightVal.match(/[\d]{1,3}(?:[.,]\d{3})+|\d{1,8}/);
+        if (match) extractedJrDenda = parseInt(match[0].replace(/[^\d]/g, ''), 10);
       }
     }
 
@@ -277,26 +288,31 @@ export default function App() {
     const finalNoPolisi = extractedNoPolisi || (platMatch ? platMatch[1] : formData.noPolisi);
     const finalAtasNama = extractedAtasNama || formData.atasNama;
     const finalNoRef = extractedNoRef || 'REF-' + Math.floor(100000 + Math.random() * 900000);
-    const finalNoBukti = extractedNoBukti || 'TRX-' + Math.floor(10000000 + Math.random() * 90000000);
+    const finalBuktiBayar = extractedBuktiBayar || formData.noBukti;
+    const finalNoMesin = extractedNoMesin || formData.noMesin;
 
     const numbers = upperText.match(/(?:Rp\.?|\b)\s*([\d]{1,3}(?:[.,]\d{3})+|\d{4,9})/g);
     let pkb = extractedPkb || 2450000;
     let jr = extractedJr || 143000;
+    let jrDenda = extractedJrDenda || 0;
 
     if (!extractedPkb && numbers && numbers.length > 0) {
       const cleanNums = numbers.map(n => parseInt(n.replace(/[^\d]/g, ''), 10)).filter(n => n > 10000);
       if (cleanNums.length > 0) pkb = cleanNums[0];
       if (cleanNums.length > 1) jr = cleanNums[1];
+      if (cleanNums.length > 2) jrDenda = cleanNums[2];
     }
 
     setFormData(prev => ({
       ...prev,
       noPolisi: finalNoPolisi,
       noRef: finalNoRef,
-      noBukti: finalNoBukti,
+      noBukti: finalBuktiBayar,
       atasNama: finalAtasNama,
+      noMesin: finalNoMesin,
       pkbPokok: pkb,
       jrPokok: jr,
+      jrDenda: jrDenda,
       tanggal: new Date().toISOString().slice(0, 16)
     }));
   };
@@ -310,15 +326,11 @@ export default function App() {
       noBukti: 'ETB-' + Math.floor(10000000 + Math.random() * 90000000),
       atasNama: 'SITI AMINAH, DR.',
       noPolisi: 'W 4589 QJ',
-      jenisKendaraan: 'Roda 4 (Minibus)',
-      tipeKendaraan: 'HONDA BRIO RS CVT',
-      merekKendaraan: 'HONDA',
       warnaKendaraan: 'PUTIH MUTIARA',
-      tahunBuat: '2022',
       tanggalMasaLaku: '12-08-2028',
       pkbPokok: 2150000,
       jrPokok: 143000,
-      perkiraanKendaraan: 25000,
+      jrDenda: 25000,
       noMesin: 'P10A1-1239842',
       tagihan: 2318000,
       biayaAdmin: settings.biayaAdmin,
@@ -400,20 +412,19 @@ export default function App() {
         commands += ESC + '\x61\x00'; // Left alignment
         commands += `Tgl   : ${formData.tanggal}\n`;
         commands += `NoRef : ${formData.noRef}\n`;
-        commands += `NoBukti: ${formData.noBukti}\n`;
+        commands += `Bukti Bayar : ${formData.noBukti}\n`;
         commands += `Status: ${formData.status}\n`;
         commands += '--------------------------------\n';
         commands += `Atas Nama   : ${formData.atasNama}\n`;
         commands += `No. Polisi  : ${formData.noPolisi}\n`;
-        commands += `Kendaraan   : ${formData.merekKendaraan} ${formData.tipeKendaraan}\n`;
-        commands += `Jenis/Warna : ${formData.jenisKendaraan} / ${formData.warnaKendaraan}\n`;
-        commands += `Tahun/Masa  : ${formData.tahunBuat} s.d ${formData.tanggalMasaLaku}\n`;
+        commands += `Warna       : ${formData.warnaKendaraan}\n`;
+        commands += `Masa Laku   : ${formData.tanggalMasaLaku}\n`;
         commands += `No. Mesin   : ${formData.noMesin}\n`;
         commands += '--------------------------------\n';
         commands += `PKB Pokok   : Rp ${formData.pkbPokok.toLocaleString('id-ID')}\n`;
         commands += `JR Pokok    : Rp ${formData.jrPokok.toLocaleString('id-ID')}\n`;
-        if (formData.perkiraanKendaraan > 0) {
-          commands += `Denda/Lain  : Rp ${formData.perkiraanKendaraan.toLocaleString('id-ID')}\n`;
+        if (formData.jrDenda > 0) {
+          commands += `Jr Denda    : Rp ${formData.jrDenda.toLocaleString('id-ID')}\n`;
         }
         commands += `Biaya Admin : Rp ${formData.biayaAdmin.toLocaleString('id-ID')}\n`;
         commands += `Cetak eTBPKP: Rp ${formData.cetakEtbpkp.toLocaleString('id-ID')}\n`;
@@ -752,7 +763,7 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Nomor Bukti Bayar</label>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Bukti Bayar</label>
                   <input
                     type="text"
                     value={formData.noBukti}
@@ -782,36 +793,6 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Jenis Kendaraan</label>
-                  <input
-                    type="text"
-                    value={formData.jenisKendaraan}
-                    onChange={e => handleInputChange('jenisKendaraan', e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Merek Kendaraan</label>
-                  <input
-                    type="text"
-                    value={formData.merekKendaraan}
-                    onChange={e => handleInputChange('merekKendaraan', e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 uppercase focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Tipe Kendaraan</label>
-                  <input
-                    type="text"
-                    value={formData.tipeKendaraan}
-                    onChange={e => handleInputChange('tipeKendaraan', e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 uppercase focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1">Warna Kendaraan</label>
                   <input
                     type="text"
@@ -821,15 +802,7 @@ export default function App() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Tahun Buat</label>
-                  <input
-                    type="text"
-                    value={formData.tahunBuat}
-                    onChange={e => handleInputChange('tahunBuat', e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
+
 
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1">Tanggal Masa Laku (DueDate)</label>
@@ -842,7 +815,7 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Nomor Mesin / Rangka</label>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Nomor Mesin</label>
                   <input
                     type="text"
                     value={formData.noMesin}
@@ -872,11 +845,11 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Perkiraan / Denda / SWDKLLJ (Rp)</label>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Jr Denda (Rp)</label>
                   <input
                     type="number"
-                    value={formData.perkiraanKendaraan}
-                    onChange={e => handleInputChange('perkiraanKendaraan', Number(e.target.value))}
+                    value={formData.jrDenda}
+                    onChange={e => handleInputChange('jrDenda', Number(e.target.value))}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -950,7 +923,7 @@ export default function App() {
                       <span className="font-semibold">{formData.noRef}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-600">No. Bukti:</span>
+                      <span className="text-slate-600">Bukti Bayar:</span>
                       <span className="font-semibold">{formData.noBukti}</span>
                     </div>
                     <div className="flex justify-between">
@@ -969,16 +942,12 @@ export default function App() {
                       <span className="font-bold text-sm text-emerald-800">{formData.noPolisi}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-600">Kendaraan:</span>
-                      <span className="font-semibold text-right">{formData.merekKendaraan} {formData.tipeKendaraan}</span>
+                      <span className="text-slate-600">Warna:</span>
+                      <span className="text-right">{formData.warnaKendaraan}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-600">Jenis/Warna:</span>
-                      <span className="text-right">{formData.jenisKendaraan} / {formData.warnaKendaraan}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Thn / Masa:</span>
-                      <span className="text-right">{formData.tahunBuat} s.d {formData.tanggalMasaLaku}</span>
+                      <span className="text-slate-600">Masa Laku:</span>
+                      <span className="text-right">{formData.tanggalMasaLaku}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-600">No. Mesin:</span>
@@ -995,10 +964,10 @@ export default function App() {
                       <span className="text-slate-600">JR Pokok:</span>
                       <span>Rp {formData.jrPokok.toLocaleString('id-ID')}</span>
                     </div>
-                    {formData.perkiraanKendaraan > 0 && (
+                    {formData.jrDenda > 0 && (
                       <div className="flex justify-between">
-                        <span className="text-slate-600">Denda/Lain:</span>
-                        <span>Rp {formData.perkiraanKendaraan.toLocaleString('id-ID')}</span>
+                        <span className="text-slate-600">Jr Denda:</span>
+                        <span>Rp {formData.jrDenda.toLocaleString('id-ID')}</span>
                       </div>
                     )}
                     <div className="flex justify-between">
@@ -1099,7 +1068,7 @@ export default function App() {
                         </span>
                         <span className="text-xs text-slate-400">{tx.noRef}</span>
                       </div>
-                      <p className="text-sm font-bold text-slate-100">{tx.atasNama} - {tx.merekKendaraan}</p>
+                      <p className="text-sm font-bold text-slate-100">{tx.atasNama} ({tx.warnaKendaraan})</p>
                       <p className="text-xs text-slate-400">Waktu: {tx.tanggal.replace('T', ' ')} • Agen: {tx.namaAgen}</p>
                     </div>
 
