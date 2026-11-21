@@ -1,0 +1,6 @@
+{
+  "name": "e-samsat Jatim kasir",
+  "description": "Aplikasi Kasir dan PPOB e-Samsat Jawa Timur dengan OCR lokal, cetak thermal Bluetooth, dan ekspor struk PNG",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

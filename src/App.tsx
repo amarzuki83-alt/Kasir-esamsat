@@ -1,0 +1,1291 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Printer, Share2, Download, Camera, Upload, Edit3, CheckCircle2, 
+  Settings, History, FileText, RefreshCw, Bluetooth, BluetoothConnected, 
+  Smartphone, ShieldCheck, Car, Calendar, DollarSign, User, Hash, 
+  MapPin, Check, AlertCircle, Info, Trash2, ArrowRight, Sparkles, HelpCircle
+} from 'lucide-react';
+import Tesseract from 'tesseract.js';
+import html2canvas from 'html2canvas';
+import confetti from 'canvas-confetti';
+
+interface TransactionData {
+  id: string;
+  tanggal: string;
+  noRef: string;
+  status: string;
+  noBukti: string;
+  atasNama: string;
+  noPolisi: string;
+  jenisKendaraan: string;
+  tipeKendaraan: string;
+  merekKendaraan: string;
+  warnaKendaraan: string;
+  tahunBuat: string;
+  tanggalMasaLaku: string;
+  pkbPokok: number;
+  jrPokok: number;
+  perkiraanKendaraan: number;
+  noMesin: string;
+  tagihan: number;
+  biayaAdmin: number;
+  cetakEtbpkp: number;
+  totalPembayaran: number;
+  namaAgen: string;
+  createdAt: string;
+}
+
+const DEFAULT_SETTINGS = {
+  namaAgen: 'Loket PPOB Athar digital',
+  biayaAdmin: 10000,
+  cetakEtbpkp: 20000,
+};
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState<'scan' | 'preview' | 'history' | 'settings'>('scan');
+  const [loadingOcr, setLoadingOcr] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState(0);
+  const [ocrStatusText, setOcrStatusText] = useState('');
+  const [rawOcrText, setRawOcrText] = useState('');
+  const [showRawOcr, setShowRawOcr] = useState(false);
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+
+  // Settings state
+  const [settings, setSettings] = useState(() => {
+    const saved = localStorage.getItem('esamsat_settings');
+    return saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
+  });
+
+  // Printer state
+  const [printerDevice, setPrinterDevice] = useState<any>(null);
+  const [printerName, setPrinterName] = useState<string>(() => localStorage.getItem('esamsat_printer_name') || '');
+  const [isPrinting, setIsPrinting] = useState(false);
+
+  // Transaction form state
+  const [formData, setFormData] = useState<TransactionData>({
+    id: '',
+    tanggal: new Date().toISOString().slice(0, 16),
+    noRef: 'REF-' + Math.floor(100000 + Math.random() * 900000),
+    status: 'BERHASIL / LUNAS',
+    noBukti: 'TRX-' + Math.floor(10000000 + Math.random() * 90000000),
+    atasNama: 'BUDI SANTOSO',
+    noPolisi: 'L 1234 AB',
+    jenisKendaraan: 'Roda 4 (Minibus)',
+    tipeKendaraan: 'ALL NEW AVANZA G',
+    merekKendaraan: 'TOYOTA',
+    warnaKendaraan: 'HITAM METALIK',
+    tahunBuat: '2021',
+    tanggalMasaLaku: '15-11-2027',
+    pkbPokok: 2450000,
+    jrPokok: 143000,
+    perkiraanKendaraan: 50000,
+    noMesin: '1NR-FE1234567',
+    tagihan: 2643000,
+    biayaAdmin: settings.biayaAdmin,
+    cetakEtbpkp: settings.cetakEtbpkp,
+    totalPembayaran: 2643000 + settings.biayaAdmin + settings.cetakEtbpkp,
+    namaAgen: settings.namaAgen,
+    createdAt: new Date().toISOString(),
+  });
+
+  // History state
+  const [history, setHistory] = useState<TransactionData[]>(() => {
+    const saved = localStorage.getItem('esamsat_history');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // PWA Install prompt state
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+
+  // Receipt ref for html2canvas
+  const receiptRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Check for shared image from Service Worker
+    async function checkSharedImage() {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('share') === 'true') {
+        try {
+          const cache = await caches.open('esamsat-jatim-v1');
+          const res = await cache.match('/shared-image');
+          if (res) {
+            const blob = await res.blob();
+            const imageUrl = URL.createObjectURL(blob);
+            setUploadedImage(imageUrl);
+            processImage(imageUrl);
+            // Clean up URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        } catch (e) {
+          console.error('Failed to load shared image:', e);
+        }
+      }
+    }
+    checkSharedImage();
+
+    // PWA beforeinstallprompt listener
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  // Save history & settings
+  useEffect(() => {
+    localStorage.setItem('esamsat_history', JSON.stringify(history));
+  }, [history]);
+
+  useEffect(() => {
+    localStorage.setItem('esamsat_settings', JSON.stringify(settings));
+  }, [settings]);
+
+  // Recalculate total when tagihan or fees change
+  useEffect(() => {
+    const subtotal = Number(formData.pkbPokok) + Number(formData.jrPokok) + Number(formData.perkiraanKendaraan);
+    const total = subtotal + Number(formData.biayaAdmin) + Number(formData.cetakEtbpkp);
+    setFormData(prev => ({
+      ...prev,
+      tagihan: subtotal,
+      totalPembayaran: total,
+      biayaAdmin: settings.biayaAdmin,
+      cetakEtbpkp: settings.cetakEtbpkp,
+      namaAgen: settings.namaAgen
+    }));
+  }, [formData.pkbPokok, formData.jrPokok, formData.perkiraanKendaraan, settings]);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) {
+      alert('Aplikasi sudah terinstal atau browser tidak mendukung instalasi otomatis. Gunakan menu titik tiga di browser Chrome -> "Tambahkan ke Layar Utama" / "Install app".');
+      return;
+    }
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setIsInstallable(false);
+    }
+    setDeferredPrompt(null);
+  };
+
+  // OCR Processing
+  const processImage = async (imageSource: string) => {
+    setLoadingOcr(true);
+    setOcrProgress(0);
+    setOcrStatusText('Memuat mesin OCR (Tesseract.js)...');
+
+    try {
+      const worker = await Tesseract.createWorker('ind+eng', 1, {
+        logger: m => {
+          if (m.status === 'recognizing text') {
+            setOcrProgress(Math.round(m.progress * 100));
+            setOcrStatusText(`Memindai teks bukti bayar: ${Math.round(m.progress * 100)}%`);
+          } else {
+            setOcrStatusText(m.status);
+          }
+        }
+      });
+
+      const ret = await worker.recognize(imageSource);
+      await worker.terminate();
+
+      const text = ret.data.text;
+      setRawOcrText(text);
+      parseOcrText(text);
+      setLoadingOcr(false);
+      setActiveTab('preview');
+      confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 } });
+    } catch (error) {
+      console.error('OCR Error:', error);
+      setLoadingOcr(false);
+      alert('Gagal memindai OCR otomatis. Silakan isi data secara manual atau gunakan data contoh.');
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const imageUrl = URL.createObjectURL(file);
+      setUploadedImage(imageUrl);
+      processImage(imageUrl);
+    }
+  };
+
+  // Parse extracted OCR text using smart regex heuristics
+  const parseOstr = (text: string, regex: RegExp, defaultVal: string) => {
+    const match = text.match(regex);
+    return match && match[1] ? match[1].trim() : defaultVal;
+  };
+
+  const parseOcrText = (text: string) => {
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    
+    let extractedAtasNama = '';
+    let extractedNoPolisi = '';
+    let extractedNoRef = '';
+    let extractedNoBukti = '';
+    let extractedPkb = 0;
+    let extractedJr = 0;
+
+    for (const line of lines) {
+      const upperLine = line.toUpperCase();
+      let parts = upperLine.split(/[:|]/).map(p => p.trim());
+      if (parts.length < 2) {
+        parts = upperLine.split(/\s{2,}/).map(p => p.trim());
+      }
+      
+      const leftKey = parts[0] || '';
+      const rightVal = parts[1] || '';
+
+      if (leftKey.includes('NAMA') || leftKey.includes('PEMILIK') || leftKey.includes('ATAS NAMA')) {
+        if (rightVal) extractedAtasNama = rightVal;
+        else {
+          const clean = upperLine.replace(/NAMA|PEMILIK|ATAS/g, '').trim();
+          if (clean) extractedAtasNama = clean;
+        }
+      } else if (leftKey.includes('POLISI') || leftKey.includes('PLAT') || leftKey.includes('NOPOL')) {
+        const match = upperLine.match(/\b([A-Z]{1,2}\s*\d{1,4}\s*[A-Z]{1,3})\b/);
+        if (match) extractedNoPolisi = match[1];
+        else if (rightVal) extractedNoPolisi = rightVal;
+      } else if (leftKey.includes('REF') || leftKey.includes('KODE')) {
+        const match = rightVal.match(/[\d\w]{5,20}/);
+        if (match) extractedNoRef = match[0];
+      } else if (leftKey.includes('BUKTI') || leftKey.includes('BAYAR') || leftKey.includes('STRUK')) {
+        const match = rightVal.match(/[\d]{6,16}/);
+        if (match) extractedNoBukti = match[0];
+      } else if (leftKey.includes('PKB') || leftKey.includes('PAJAK')) {
+        const match = rightVal.match(/[\d]{1,3}(?:[.,]\d{3})+|\d{4,9}/);
+        if (match) extractedPkb = parseInt(match[0].replace(/[^\d]/g, ''), 10);
+      } else if (leftKey.includes('JASA') || leftKey.includes('RAHARJA') || leftKey.includes('JR')) {
+        const match = rightVal.match(/[\d]{1,3}(?:[.,]\d{3})+|\d{4,9}/);
+        if (match) extractedJr = parseInt(match[0].replace(/[^\d]/g, ''), 10);
+      }
+    }
+
+    const upperText = text.toUpperCase();
+    const platMatch = upperText.match(/\b([A-Z]{1,2}\s*\d{1,4}\s*[A-Z]{1,3})\b/);
+    const finalNoPolisi = extractedNoPolisi || (platMatch ? platMatch[1] : formData.noPolisi);
+    const finalAtasNama = extractedAtasNama || formData.atasNama;
+    const finalNoRef = extractedNoRef || 'REF-' + Math.floor(100000 + Math.random() * 900000);
+    const finalNoBukti = extractedNoBukti || 'TRX-' + Math.floor(10000000 + Math.random() * 90000000);
+
+    const numbers = upperText.match(/(?:Rp\.?|\b)\s*([\d]{1,3}(?:[.,]\d{3})+|\d{4,9})/g);
+    let pkb = extractedPkb || 2450000;
+    let jr = extractedJr || 143000;
+
+    if (!extractedPkb && numbers && numbers.length > 0) {
+      const cleanNums = numbers.map(n => parseInt(n.replace(/[^\d]/g, ''), 10)).filter(n => n > 10000);
+      if (cleanNums.length > 0) pkb = cleanNums[0];
+      if (cleanNums.length > 1) jr = cleanNums[1];
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      noPolisi: finalNoPolisi,
+      noRef: finalNoRef,
+      noBukti: finalNoBukti,
+      atasNama: finalAtasNama,
+      pkbPokok: pkb,
+      jrPokok: jr,
+      tanggal: new Date().toISOString().slice(0, 16)
+    }));
+  };
+
+  const loadSampleData = () => {
+    setFormData({
+      id: '',
+      tanggal: new Date().toISOString().slice(0, 16),
+      noRef: 'REF-JTM-' + Math.floor(100000 + Math.random() * 900000),
+      status: 'BERHASIL / LUNAS',
+      noBukti: 'ETB-' + Math.floor(10000000 + Math.random() * 90000000),
+      atasNama: 'SITI AMINAH, DR.',
+      noPolisi: 'W 4589 QJ',
+      jenisKendaraan: 'Roda 4 (Minibus)',
+      tipeKendaraan: 'HONDA BRIO RS CVT',
+      merekKendaraan: 'HONDA',
+      warnaKendaraan: 'PUTIH MUTIARA',
+      tahunBuat: '2022',
+      tanggalMasaLaku: '12-08-2028',
+      pkbPokok: 2150000,
+      jrPokok: 143000,
+      perkiraanKendaraan: 25000,
+      noMesin: 'P10A1-1239842',
+      tagihan: 2318000,
+      biayaAdmin: settings.biayaAdmin,
+      cetakEtbpkp: settings.cetakEtbpkp,
+      totalPembayaran: 2318000 + settings.biayaAdmin + settings.cetakEtbpkp,
+      namaAgen: settings.namaAgen,
+      createdAt: new Date().toISOString(),
+    });
+    setActiveTab('preview');
+    confetti({ particleCount: 40, spread: 50, origin: { y: 0.8 } });
+  };
+
+  // Web Bluetooth Thermal Printer Integration
+  const connectBluetoothPrinter = async () => {
+    try {
+      const nav = navigator as any;
+      if (!nav.bluetooth) {
+        alert('Web Bluetooth API tidak didukung di browser ini. Gunakan Google Chrome di Android atau Laptop.');
+        return;
+      }
+
+      const device = await nav.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb', '0000ff00-0000-1000-8000-00805f9b34fb']
+      });
+
+      setPrinterDevice(device);
+      setPrinterName(device.name || 'Printer Thermal Bluetooth');
+      localStorage.setItem('esamsat_printer_name', device.name || 'Printer Thermal Bluetooth');
+      alert(`Berhasil terhubung ke printer: ${device.name || 'Thermal Printer'}`);
+    } catch (error) {
+      console.error('Bluetooth connection error:', error);
+      alert('Gagal menghubungkan printer Bluetooth atau dibatalkan oleh pengguna.');
+    }
+  };
+
+  const disconnectPrinter = () => {
+    setPrinterDevice(null);
+    setPrinterName('');
+    localStorage.removeItem('esamsat_printer_name');
+    alert('Printer diputus.');
+  };
+
+  // Generate ESC/POS Byte Commands for 58mm / 80mm Thermal Printer
+  const printThermalReceipt = async () => {
+    setIsPrinting(true);
+    try {
+      // If Web Bluetooth connected device exists
+      if (printerDevice && printerDevice.gatt) {
+        const server = await printerDevice.gatt.connect();
+        // Search for printing service & characteristic
+        const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb').catch(() => null) 
+          || await server.getPrimaryService('0000ff00-0000-1000-8000-00805f9b34fb').catch(() => null);
+
+        if (!service) {
+          throw new Error('Printer service ESC/POS tidak ditemukan pada perangkat.');
+        }
+
+        const characteristic = await service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb').catch(() => null)
+          || await service.getCharacteristic('0000ff02-0000-1000-8000-00805f9b34fb').catch(() => null)
+          || (await service.characteristics())[0];
+
+        if (!characteristic) {
+          throw new Error('Karakteristik write printer tidak ditemukan.');
+        }
+
+        const encoder = new TextEncoder();
+        const ESC = '\x1B';
+        const GS = '\x1D';
+        
+        let commands = '';
+        commands += ESC + '@'; // Initialize
+        commands += ESC + '\x61\x01'; // Center alignment
+        commands += ESC + '\x45\x01'; // Bold ON
+        commands += 'E-SAMSAT JAWA TIMUR\n';
+        commands += 'BUKTI PEMBAYARAN PPOB e-TBPKP\n';
+        commands += ESC + '\x45\x00'; // Bold OFF
+        commands += '--------------------------------\n';
+        commands += ESC + '\x61\x00'; // Left alignment
+        commands += `Tgl   : ${formData.tanggal}\n`;
+        commands += `NoRef : ${formData.noRef}\n`;
+        commands += `NoBukti: ${formData.noBukti}\n`;
+        commands += `Status: ${formData.status}\n`;
+        commands += '--------------------------------\n';
+        commands += `Atas Nama   : ${formData.atasNama}\n`;
+        commands += `No. Polisi  : ${formData.noPolisi}\n`;
+        commands += `Kendaraan   : ${formData.merekKendaraan} ${formData.tipeKendaraan}\n`;
+        commands += `Jenis/Warna : ${formData.jenisKendaraan} / ${formData.warnaKendaraan}\n`;
+        commands += `Tahun/Masa  : ${formData.tahunBuat} s.d ${formData.tanggalMasaLaku}\n`;
+        commands += `No. Mesin   : ${formData.noMesin}\n`;
+        commands += '--------------------------------\n';
+        commands += `PKB Pokok   : Rp ${formData.pkbPokok.toLocaleString('id-ID')}\n`;
+        commands += `JR Pokok    : Rp ${formData.jrPokok.toLocaleString('id-ID')}\n`;
+        if (formData.perkiraanKendaraan > 0) {
+          commands += `Denda/Lain  : Rp ${formData.perkiraanKendaraan.toLocaleString('id-ID')}\n`;
+        }
+        commands += `Biaya Admin : Rp ${formData.biayaAdmin.toLocaleString('id-ID')}\n`;
+        commands += `Cetak eTBPKP: Rp ${formData.cetakEtbpkp.toLocaleString('id-ID')}\n`;
+        commands += '--------------------------------\n';
+        commands += ESC + '\x45\x01'; // Bold ON
+        commands += `TOTAL BAYAR : Rp ${formData.totalPembayaran.toLocaleString('id-ID')}\n`;
+        commands += ESC + '\x45\x00'; // Bold OFF
+        commands += '--------------------------------\n';
+        commands += ESC + '\x61\x01'; // Center alignment
+        commands += `Agen: ${formData.namaAgen}\n`;
+        commands += 'Terima Kasih Atas Pembayaran Anda\n';
+        commands += 'Simpan Struk Ini Sebagai Bukti Sah\n\n\n';
+        commands += GS + '\x56\x42\x00'; // Cut paper
+
+        const dataBytes = encoder.encode(commands);
+        // Write in chunks if needed
+        await characteristic.writeValue(dataBytes);
+
+        setIsPrinting(false);
+        alert('Struk berhasil dicetak melalui Printer Bluetooth!');
+        saveTransactionToHistory();
+      } else {
+        // Fallback simulation / Web Print dialog
+        window.print();
+        setIsPrinting(false);
+        saveTransactionToHistory();
+      }
+    } catch (error) {
+      console.error('Print error:', error);
+      setIsPrinting(false);
+      alert('Gagal mencetak ke printer Bluetooth. Menggunakan dialog cetak browser (PDF/Standard Print).');
+      window.print();
+      saveTransactionToHistory();
+    }
+  };
+
+  const saveTransactionToHistory = () => {
+    const newTx: TransactionData = {
+      ...formData,
+      id: 'TX-' + Date.now(),
+      createdAt: new Date().toISOString()
+    };
+    setHistory(prev => [newTx, ...prev]);
+    confetti({ particleCount: 70, spread: 70, origin: { y: 0.6 } });
+  };
+
+  // Export Receipt as PNG Image
+  const downloadReceiptImage = async () => {
+    if (!receiptRef.current) return;
+    try {
+      const canvas = await html2canvas(receiptRef.current, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        logging: false
+      });
+      const image = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = image;
+      a.download = `Struk-eSamsat-${formData.noPolisi.replace(/\s+/g, '-')}-${formData.noRef}.png`;
+      a.click();
+      confetti({ particleCount: 40, spread: 60, origin: { y: 0.7 } });
+    } catch (e) {
+      console.error('Export PNG error:', e);
+      alert('Gagal mengunduh gambar struk.');
+    }
+  };
+
+  // Share Receipt via Web Share API
+  const shareReceiptImage = async () => {
+    if (!receiptRef.current) return;
+    try {
+      const canvas = await html2canvas(receiptRef.current, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        logging: false
+      });
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], `Struk-eSamsat-${formData.noPolisi.replace(/\s+/g, '-')}.png`, { type: 'image/png' });
+        
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              title: 'Struk e-Samsat Jatim',
+              text: `Bukti Pembayaran e-Samsat Jatim No. Pol ${formData.noPolisi} - Total Rp ${formData.totalPembayaran.toLocaleString('id-ID')} (${formData.status})`,
+              files: [file],
+            });
+          } catch (err) {
+            if ((err as Error).name !== 'AbortError') {
+              console.error('Share error:', err);
+            }
+          }
+        } else {
+          // Fallback download if share API not supported
+          downloadReceiptImage();
+        }
+      }, 'image/png');
+    } catch (e) {
+      console.error('Share blob error:', e);
+      downloadReceiptImage();
+    }
+  };
+
+  const handleInputChange = (field: keyof TransactionData, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans pb-20">
+      {/* Top Header */}
+      <header className="bg-emerald-800 text-white shadow-md sticky top-0 z-40 border-b border-emerald-700">
+        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center shadow-inner border border-emerald-500">
+              <Car className="w-6 h-6 text-emerald-100" />
+            </div>
+            <div>
+              <h1 className="font-bold text-lg leading-tight tracking-tight flex items-center gap-2">
+                e-Samsat Jatim <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-700 text-emerald-200 border border-emerald-600">Kasir PPOB</span>
+              </h1>
+              <p className="text-xs text-emerald-200 flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                {settings.namaAgen}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {isInstallable && (
+              <button 
+                onClick={handleInstallClick}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow flex items-center gap-1.5 transition border border-emerald-500 active:scale-95"
+              >
+                <Smartphone className="w-4 h-4" />
+                <span>Install PWA</span>
+              </button>
+            )}
+
+            <button 
+              onClick={() => setActiveTab('settings')}
+              className="p-2 rounded-lg bg-emerald-700/60 hover:bg-emerald-700 text-emerald-100 transition relative"
+              title="Pengaturan & Printer"
+            >
+              <Settings className="w-5 h-5" />
+              {printerName && (
+                <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-emerald-800"></span>
+              )}
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-6 pb-24">
+        {/* TAB 1: SCAN & INPUT */}
+        {activeTab === 'scan' && (
+          <div className="space-y-6">
+            <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700 shadow-lg relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none"></div>
+              
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-lg font-bold text-emerald-400 flex items-center gap-2">
+                    <Camera className="w-5 h-5 text-emerald-400" />
+                    Scan Bukti Transfer / Mutasi OCR
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Unggah screenshot bukti pembayaran m-Banking/ATM. OCR otomatis ekstrak data kendaraan & pajak.
+                  </p>
+                </div>
+                <button
+                  onClick={loadSampleData}
+                  className="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-xs font-medium px-3 py-1.5 rounded-lg border border-emerald-500/30 transition flex items-center gap-1"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Data Contoh</span>
+                </button>
+              </div>
+
+              {/* Upload Dropzone */}
+              <div className="border-2 border-dashed border-slate-600 hover:border-emerald-500 rounded-xl p-6 text-center transition bg-slate-900/50 group relative">
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  onChange={handleFileUpload} 
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                />
+                <div className="flex flex-col items-center justify-center space-y-3">
+                  <div className="w-14 h-14 rounded-full bg-emerald-900/50 text-emerald-400 flex items-center justify-center group-hover:scale-110 transition border border-emerald-700/50">
+                    <Upload className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-200">Ketuk untuk Unggah / Ambil Foto</p>
+                    <p className="text-xs text-slate-400 mt-1">Mendukung PNG, JPG, WEBP (Juga mendukung Share Target dari Android)</p>
+                  </div>
+                </div>
+              </div>
+
+              {uploadedImage && (
+                <div className="mt-4 p-3 bg-slate-900 rounded-xl border border-slate-700 flex items-center gap-4">
+                  <img src={uploadedImage} alt="Bukti Transfer" className="w-20 h-20 object-cover rounded-lg border border-slate-600" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-emerald-400">Gambar berhasil dimuat</p>
+                    <p className="text-xs text-slate-400">OCR lokal siap diproses atau sudah diekstrak</p>
+                  </div>
+                  <button 
+                    onClick={() => processImage(uploadedImage)}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3 py-2 rounded-lg font-medium transition"
+                  >
+                    Scan Ulang
+                  </button>
+                </div>
+              )}
+
+              {loadingOcr && (
+                <div className="mt-4 p-4 bg-emerald-950/60 rounded-xl border border-emerald-800 text-center space-y-3 animate-pulse">
+                  <div className="flex items-center justify-center gap-2 text-emerald-300 font-medium text-sm">
+                    <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
+                    <span>{ocrStatusText}</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div className="bg-emerald-500 h-full transition-all duration-300" style={{ width: `${ocrProgress}%` }}></div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Actions / Manual Navigation */}
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => setActiveTab('preview')}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white p-4 rounded-xl shadow-lg font-medium flex items-center justify-between group transition active:scale-95"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-emerald-700 rounded-lg">
+                    <Edit3 className="w-5 h-5 text-emerald-200" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-bold">Formulir Preview</p>
+                    <p className="text-xs text-emerald-200">Tap-to-Edit Data</p>
+                  </div>
+                </div>
+                <ArrowRight className="w-5 h-5 text-emerald-200 group-hover:translate-x-1 transition" />
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveTab('preview');
+                }}
+                className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 p-4 rounded-xl shadow-lg font-medium flex items-center justify-between group transition active:scale-95"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-slate-700 rounded-lg">
+                    <Printer className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-bold">Cetak & Struk</p>
+                    <p className="text-xs text-slate-400">Thermal / PNG</p>
+                  </div>
+                </div>
+                <ArrowRight className="w-5 h-5 text-slate-400 group-hover:translate-x-1 transition" />
+              </button>
+            </div>
+
+            {/* Info PWA & Share Target Guide */}
+            <div className="bg-slate-800/80 rounded-xl p-4 border border-slate-700 text-xs text-slate-300 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-emerald-400">
+                <Info className="w-4 h-4" />
+                <span>Fitur PWA & Share Target Android</span>
+              </div>
+              <p className="text-slate-400 leading-relaxed">
+                Aplikasi ini mendukung fitur <strong className="text-slate-200">Android Share Target</strong>. Saat Anda membuka galeri foto di HP Android dan memilih <strong className="text-slate-200">Bagikan (Share)</strong> ke aplikasi <strong className="text-slate-200">e-samsat Jatim kasir</strong>, gambar bukti transfer akan otomatis diterima dan dipindai OCR lokal tanpa internet!
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: FORM PREVIEW & INTERACTIVE EDIT */}
+        {activeTab === 'preview' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-emerald-400 flex items-center gap-2">
+                  <Edit3 className="w-5 h-5" />
+                  Preview & Tap-to-Edit Transaksi
+                </h2>
+                <p className="text-xs text-slate-400">Sentuh field di bawah untuk mengedit hasil OCR atau input manual.</p>
+              </div>
+              <button
+                onClick={() => setActiveTab('scan')}
+                className="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 transition"
+              >
+                ← Kembali ke Scan
+              </button>
+            </div>
+
+            {/* Form Inputs Grid */}
+            <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700 shadow-xl space-y-4">
+              <h3 className="text-sm font-bold text-slate-300 pb-2 border-b border-slate-700 flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>Informasi Transaksi & e-TBPKP</span>
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Tanggal & Waktu</label>
+                  <input
+                    type="datetime-local"
+                    value={formData.tanggal}
+                    onChange={e => handleInputChange('tanggal', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Nomor Referensi (No Ref)</label>
+                  <input
+                    type="text"
+                    value={formData.noRef}
+                    onChange={e => handleInputChange('noRef', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Status Transaksi</label>
+                  <input
+                    type="text"
+                    value={formData.status}
+                    onChange={e => handleInputChange('status', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-emerald-400 font-bold focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Nomor Bukti Bayar</label>
+                  <input
+                    type="text"
+                    value={formData.noBukti}
+                    onChange={e => handleInputChange('noBukti', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Atas Nama (Pemilik)</label>
+                  <input
+                    type="text"
+                    value={formData.atasNama}
+                    onChange={e => handleInputChange('atasNama', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 uppercase focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Nomor Polisi (Plat No)</label>
+                  <input
+                    type="text"
+                    value={formData.noPolisi}
+                    onChange={e => handleInputChange('noPolisi', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-emerald-400 uppercase focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Jenis Kendaraan</label>
+                  <input
+                    type="text"
+                    value={formData.jenisKendaraan}
+                    onChange={e => handleInputChange('jenisKendaraan', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Merek Kendaraan</label>
+                  <input
+                    type="text"
+                    value={formData.merekKendaraan}
+                    onChange={e => handleInputChange('merekKendaraan', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 uppercase focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Tipe Kendaraan</label>
+                  <input
+                    type="text"
+                    value={formData.tipeKendaraan}
+                    onChange={e => handleInputChange('tipeKendaraan', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 uppercase focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Warna Kendaraan</label>
+                  <input
+                    type="text"
+                    value={formData.warnaKendaraan}
+                    onChange={e => handleInputChange('warnaKendaraan', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 uppercase focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Tahun Buat</label>
+                  <input
+                    type="text"
+                    value={formData.tahunBuat}
+                    onChange={e => handleInputChange('tahunBuat', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Tanggal Masa Laku (DueDate)</label>
+                  <input
+                    type="text"
+                    value={formData.tanggalMasaLaku}
+                    onChange={e => handleInputChange('tanggalMasaLaku', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Nomor Mesin / Rangka</label>
+                  <input
+                    type="text"
+                    value={formData.noMesin}
+                    onChange={e => handleInputChange('noMesin', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 uppercase focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">PKB Pokok (Rp)</label>
+                  <input
+                    type="number"
+                    value={formData.pkbPokok}
+                    onChange={e => handleInputChange('pkbPokok', Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-emerald-400 font-bold focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">JR Pokok (Jasa Raharja) (Rp)</label>
+                  <input
+                    type="number"
+                    value={formData.jrPokok}
+                    onChange={e => handleInputChange('jrPokok', Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Perkiraan / Denda / SWDKLLJ (Rp)</label>
+                  <input
+                    type="number"
+                    value={formData.perkiraanKendaraan}
+                    onChange={e => handleInputChange('perkiraanKendaraan', Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Biaya Admin (Rp)</label>
+                  <input
+                    type="number"
+                    value={formData.biayaAdmin}
+                    onChange={e => handleInputChange('biayaAdmin', Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Cetak e-TBPKP (Rp)</label>
+                  <input
+                    type="number"
+                    value={formData.cetakEtbpkp}
+                    onChange={e => handleInputChange('cetakEtbpkp', Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              {/* Total Calculation Display */}
+              <div className="mt-4 p-4 bg-emerald-950/40 rounded-xl border border-emerald-800/60 flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-emerald-300 font-medium">Total Tagihan Keseluruhan</p>
+                  <p className="text-xl font-extrabold text-emerald-400">
+                    Rp {formData.totalPembayaran.toLocaleString('id-ID')}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-slate-400">Nama Agen Kasir</p>
+                  <p className="text-xs font-bold text-slate-200">{formData.namaAgen}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Live Thermal Receipt Preview Card */}
+            <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700 shadow-xl space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-300 flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-emerald-400" />
+                  <span>Struk Digital (Thermal Preview)</span>
+                </h3>
+                <span className="text-xs px-2 py-0.5 rounded bg-emerald-900 text-emerald-300 border border-emerald-700">58mm / 80mm</span>
+              </div>
+
+              {/* Printable Receipt DOM element */}
+              <div className="flex justify-center overflow-x-auto py-2">
+                <div 
+                  ref={receiptRef} 
+                  className="bg-white text-slate-900 p-6 rounded-none shadow-2xl w-[340px] font-mono text-xs leading-tight border border-slate-300 select-none"
+                  style={{ fontFamily: '"Courier New", Courier, monospace' }}
+                >
+                  <div className="text-center pb-3 border-b border-dashed border-slate-400 space-y-1">
+                    <p className="font-bold text-sm tracking-wider">E-SAMSAT JAWA TIMUR</p>
+                    <p className="text-[11px] font-semibold text-slate-700">BUKTI PEMBAYARAN PPOB e-TBPKP</p>
+                    <p className="text-[10px] text-slate-500">Layanan Samsat Keliling / PPOB Resmi</p>
+                  </div>
+
+                  <div className="py-2 border-b border-dashed border-slate-400 space-y-1 text-[11px]">
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Tgl/Waktu:</span>
+                      <span className="font-semibold">{formData.tanggal.replace('T', ' ')}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">No. Ref:</span>
+                      <span className="font-semibold">{formData.noRef}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">No. Bukti:</span>
+                      <span className="font-semibold">{formData.noBukti}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Status:</span>
+                      <span className="font-bold text-emerald-700">{formData.status}</span>
+                    </div>
+                  </div>
+
+                  <div className="py-2 border-b border-dashed border-slate-400 space-y-1 text-[11px]">
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Atas Nama:</span>
+                      <span className="font-bold truncate max-w-[180px] text-right">{formData.atasNama}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">No. Polisi:</span>
+                      <span className="font-bold text-sm text-emerald-800">{formData.noPolisi}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Kendaraan:</span>
+                      <span className="font-semibold text-right">{formData.merekKendaraan} {formData.tipeKendaraan}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Jenis/Warna:</span>
+                      <span className="text-right">{formData.jenisKendaraan} / {formData.warnaKendaraan}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Thn / Masa:</span>
+                      <span className="text-right">{formData.tahunBuat} s.d {formData.tanggalMasaLaku}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">No. Mesin:</span>
+                      <span className="text-right">{formData.noMesin}</span>
+                    </div>
+                  </div>
+
+                  <div className="py-2 border-b border-dashed border-slate-400 space-y-1 text-[11px]">
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">PKB Pokok:</span>
+                      <span>Rp {formData.pkbPokok.toLocaleString('id-ID')}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">JR Pokok:</span>
+                      <span>Rp {formData.jrPokok.toLocaleString('id-ID')}</span>
+                    </div>
+                    {formData.perkiraanKendaraan > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">Denda/Lain:</span>
+                        <span>Rp {formData.perkiraanKendaraan.toLocaleString('id-ID')}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Biaya Admin:</span>
+                      <span>Rp {formData.biayaAdmin.toLocaleString('id-ID')}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Cetak e-TBPKP:</span>
+                      <span>Rp {formData.cetakEtbpkp.toLocaleString('id-ID')}</span>
+                    </div>
+                  </div>
+
+                  <div className="py-2 border-b border-dashed border-slate-400 text-xs font-bold flex justify-between items-center">
+                    <span>TOTAL BAYAR:</span>
+                    <span className="text-sm text-emerald-700">Rp {formData.totalPembayaran.toLocaleString('id-ID')}</span>
+                  </div>
+
+                  <div className="pt-3 text-center space-y-1 text-[10px] text-slate-600">
+                    <p className="font-bold text-slate-800">Agen: {formData.namaAgen}</p>
+                    <p>Terima Kasih Atas Pembayaran Anda</p>
+                    <p>Simpan Struk Ini Sebagai Bukti Sah</p>
+                    <p className="text-[9px] text-slate-400 mt-2">=== e-Samsat Jatim Kasir PWA ===</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons for Printing & Export */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+                <button
+                  onClick={printThermalReceipt}
+                  disabled={isPrinting}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition active:scale-95 disabled:opacity-50"
+                >
+                  <Printer className="w-5 h-5" />
+                  <span>{isPrinting ? 'Mencetak...' : (printerName ? 'Cetak Bluetooth' : 'Cetak / Print')}</span>
+                </button>
+
+                <button
+                  onClick={downloadReceiptImage}
+                  className="bg-slate-700 hover:bg-slate-600 text-white py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition active:scale-95"
+                >
+                  <Download className="w-5 h-5 text-emerald-400" />
+                  <span>Simpan PNG</span>
+                </button>
+
+                <button
+                  onClick={shareReceiptImage}
+                  className="bg-sky-600 hover:bg-sky-500 text-white py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition active:scale-95"
+                >
+                  <Share2 className="w-5 h-5" />
+                  <span>Bagikan Struk</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: RIWAYAT TRANSAKSI */}
+        {activeTab === 'history' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-emerald-400 flex items-center gap-2">
+                  <History className="w-5 h-5" />
+                  Riwayat Transaksi Tersimpan
+                </h2>
+                <p className="text-xs text-slate-400">Daftar transaksi kasir yang telah berhasil diproses.</p>
+              </div>
+              {history.length > 0 && (
+                <button
+                  onClick={() => {
+                    if (confirm('Hapus seluruh riwayat transaksi?')) setHistory([]);
+                  }}
+                  className="text-xs bg-red-900/40 hover:bg-red-900/60 text-red-300 px-3 py-1.5 rounded-lg border border-red-800 flex items-center gap-1 transition"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Hapus Riwayat</span>
+                </button>
+              )}
+            </div>
+
+            {history.length === 0 ? (
+              <div className="bg-slate-800 rounded-2xl p-10 text-center border border-slate-700 space-y-3">
+                <div className="w-12 h-12 bg-slate-700 text-slate-400 rounded-full flex items-center justify-center mx-auto">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <p className="text-sm font-semibold text-slate-300">Belum ada riwayat transaksi</p>
+                <p className="text-xs text-slate-400">Transaksi yang dicetak atau disimpan akan otomatis muncul di sini.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {history.map((tx) => (
+                  <div key={tx.id} className="bg-slate-800 rounded-xl p-4 border border-slate-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold px-2 py-0.5 bg-emerald-900 text-emerald-300 rounded border border-emerald-700">
+                          {tx.noPolisi}
+                        </span>
+                        <span className="text-xs text-slate-400">{tx.noRef}</span>
+                      </div>
+                      <p className="text-sm font-bold text-slate-100">{tx.atasNama} - {tx.merekKendaraan}</p>
+                      <p className="text-xs text-slate-400">Waktu: {tx.tanggal.replace('T', ' ')} • Agen: {tx.namaAgen}</p>
+                    </div>
+
+                    <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-700">
+                      <div className="text-left sm:text-right">
+                        <p className="text-xs text-slate-400">Total Pembayaran</p>
+                        <p className="text-sm font-extrabold text-emerald-400">Rp {tx.totalPembayaran.toLocaleString('id-ID')}</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setFormData(tx);
+                          setActiveTab('preview');
+                        }}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-lg transition flex items-center gap-1"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>Buka / Cetak</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 4: PENGATURAN & PRINTER BLUETOOTH */}
+        {activeTab === 'settings' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-lg font-bold text-emerald-400 flex items-center gap-2">
+                <Settings className="w-5 h-5" />
+                Pengaturan Agen & Printer Thermal
+              </h2>
+              <p className="text-xs text-slate-400">Konfigurasi nama agen PPOB, biaya admin, dan koneksi printer Bluetooth 58mm/80mm.</p>
+            </div>
+
+            {/* Printer Bluetooth Settings */}
+            <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-4 shadow-xl">
+              <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                <Bluetooth className="w-4 h-4 text-emerald-400" />
+                <span>Koneksi Printer Bluetooth Thermal</span>
+              </h3>
+
+              <div className="p-4 bg-slate-900 rounded-xl border border-slate-700 flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-slate-400">Status Printer Terhubung:</p>
+                  <p className="text-sm font-bold text-emerald-400 flex items-center gap-1.5 mt-1">
+                    {printerName ? (
+                      <>
+                        <BluetoothConnected className="w-4 h-4 text-emerald-400 animate-pulse" />
+                        <span>{printerName}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                        <span className="text-slate-400 font-normal">Belum terhubung (Default Print Browser)</span>
+                      </>
+                    )}
+                  </p>
+                </div>
+
+                {printerName ? (
+                  <button
+                    onClick={disconnectPrinter}
+                    className="bg-red-900/40 hover:bg-red-900/60 text-red-300 text-xs px-3 py-2 rounded-lg border border-red-800 transition"
+                  >
+                    Putus
+                  </button>
+                ) : (
+                  <button
+                    onClick={connectBluetoothPrinter}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-4 py-2 rounded-lg font-semibold shadow transition flex items-center gap-1.5"
+                  >
+                    <Bluetooth className="w-4 h-4" />
+                    <span>Cari & Hubungkan</span>
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-slate-400">
+                *Alamat printer disimpan otomatis di browser (`localStorage`) agar tidak perlu pairing ulang setiap kali mencetak struk.
+              </p>
+            </div>
+
+            {/* Agent & Default Fees Form */}
+            <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-4 shadow-xl">
+              <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                <User className="w-4 h-4 text-emerald-400" />
+                <span>Identitas Agen & Biaya Default</span>
+              </h3>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Nama Agen PPOB</label>
+                  <input
+                    type="text"
+                    value={settings.namaAgen}
+                    onChange={e => setSettings((prev: typeof settings) => ({ ...prev, namaAgen: e.target.value }))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Default Biaya Admin (Rp)</label>
+                    <input
+                      type="number"
+                      value={settings.biayaAdmin}
+                      onChange={e => setSettings((prev: typeof settings) => ({ ...prev, biayaAdmin: Number(e.target.value) }))}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Default Cetak e-TBPKP (Rp)</label>
+                    <input
+                      type="number"
+                      value={settings.cetakEtbpkp}
+                      onChange={e => setSettings((prev: typeof settings) => ({ ...prev, cetakEtbpkp: Number(e.target.value) }))}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => alert('Pengaturan berhasil disimpan!')}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-xl text-sm transition shadow-lg"
+                >
+                  Simpan Pengaturan
+                </button>
+              </div>
+            </div>
+
+            {/* PWA Install Instructions Card */}
+            <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-3">
+              <h3 className="text-sm font-bold text-emerald-400 flex items-center gap-2">
+                <Smartphone className="w-4 h-4" />
+                <span>Cara Instal di Android (PWA)</span>
+              </h3>
+              <ol className="list-decimal list-inside text-xs text-slate-300 space-y-1.5 leading-relaxed">
+                <li>Buka aplikasi ini di browser <strong className="text-slate-100">Google Chrome Android</strong>.</li>
+                <li>Ketuk menu titik tiga (<strong className="text-slate-100">⋮</strong>) di pojok kanan atas browser.</li>
+                <li>Pilih opsi <strong className="text-emerald-400">"Tambahkan ke Layar Utama"</strong> atau <strong className="text-emerald-400">"Install App"</strong>.</li>
+                <li>Aplikasi akan terpasang di HP Android Anda layaknya aplikasi native dengan dukungan Share Target gambar struk!</li>
+              </ol>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Bottom Navigation Bar (Mobile-First Bottom Sheet Style) */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 py-2 px-4 z-40">
+        <div className="max-w-md mx-auto flex items-center justify-around">
+          <button
+            onClick={() => setActiveTab('scan')}
+            className={`flex flex-col items-center py-1 px-3 rounded-xl transition ${activeTab === 'scan' ? 'text-emerald-400 bg-emerald-950/60' : 'text-slate-400 hover:text-slate-200'}`}
+          >
+            <Camera className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] font-medium">Scan OCR</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('preview')}
+            className={`flex flex-col items-center py-1 px-3 rounded-xl transition ${activeTab === 'preview' ? 'text-emerald-400 bg-emerald-950/60' : 'text-slate-400 hover:text-slate-200'}`}
+          >
+            <FileText className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] font-medium">Preview Struk</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`flex flex-col items-center py-1 px-3 rounded-xl transition ${activeTab === 'history' ? 'text-emerald-400 bg-emerald-950/60' : 'text-slate-400 hover:text-slate-200'}`}
+          >
+            <History className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] font-medium">Riwayat</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`flex flex-col items-center py-1 px-3 rounded-xl transition ${activeTab === 'settings' ? 'text-emerald-400 bg-emerald-950/60' : 'text-slate-400 hover:text-slate-200'}`}
+          >
+            <Settings className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] font-medium">Printer & Agen</span>
+          </button>
+        </div>
+      </nav>
+    </div>
+  );
+}

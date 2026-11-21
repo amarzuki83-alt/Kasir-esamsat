@@ -1,0 +1,33 @@
+{
+  "name": "e-samsat Jatim kasir",
+  "short_name": "Samsat Jatim",
+  "description": "Aplikasi Kasir dan PPOB e-Samsat Jawa Timur dengan OCR lokal dan cetak thermal Bluetooth",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#064e3b",
+  "theme_color": "#059669",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "share_target": {
+    "action": "/",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "image",
+          "accept": ["image/*", "image/jpeg", "image/png", "image/webp"]
+        }
+      ]
+    }
+  }
+}

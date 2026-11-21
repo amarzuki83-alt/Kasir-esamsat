@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>e-samsat Jatim kasir</title>
+    <meta name="description" content="Aplikasi Kasir dan PPOB e-Samsat Jawa Timur dengan OCR lokal dan cetak thermal Bluetooth" />
+    <meta name="theme-color" content="#059669" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <meta property="og:title" content="e-samsat Jatim kasir" />
+    <meta property="og:description" content="Aplikasi Kasir dan PPOB e-Samsat Jawa Timur dengan OCR lokal dan cetak thermal Bluetooth" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-emerald-500 selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('SW registered: ', reg.scope))
+            .catch(err => console.log('SW registration failed: ', err));
+        });
+      }
+    </script>
+  </body>
+</html>
