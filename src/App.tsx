@@ -22,16 +22,12 @@ interface TransactionData {
   noBukti: string;
   atasNama: string;
   noPolisi: string;
-  warnaKendaraan: string;
   tanggalMasaLaku: string;
-  pkbPokok: number;
-  jrPokok: number;
-  jrDenda: number;
   noMesin: string;
-  tagihan: number;
+  totalBayar: number;
   biayaAdmin: number;
   cetakEtbpkp: number;
-  totalPembayaran: number;
+  jumlahHarusDibayar: number;
   namaAgen: string;
   createdAt: string;
 }
@@ -71,16 +67,12 @@ export default function App() {
     noBukti: 'TRX-' + Math.floor(10000000 + Math.random() * 90000000),
     atasNama: 'BUDI SANTOSO',
     noPolisi: 'L 1234 AB',
-    warnaKendaraan: 'HITAM METALIK',
     tanggalMasaLaku: '15-11-2027',
-    pkbPokok: 2450000,
-    jrPokok: 143000,
-    jrDenda: 50000,
     noMesin: '1NR-FE1234567',
-    tagihan: 2643000,
+    totalBayar: 2500000,
     biayaAdmin: settings.biayaAdmin,
     cetakEtbpkp: settings.cetakEtbpkp,
-    totalPembayaran: 2643000 + settings.biayaAdmin + settings.cetakEtbpkp,
+    jumlahHarusDibayar: 2500000 + settings.biayaAdmin + settings.cetakEtbpkp,
     namaAgen: settings.namaAgen,
     createdAt: new Date().toISOString(),
   });
@@ -143,19 +135,21 @@ export default function App() {
     localStorage.setItem('esamsat_settings', JSON.stringify(settings));
   }, [settings]);
 
-  // Recalculate total when tagihan or fees change
+  // Recalculate total when totalBayar or fees change
   useEffect(() => {
-    const subtotal = Number(formData.pkbPokok) + Number(formData.jrPokok) + Number(formData.jrDenda);
-    const total = subtotal + Number(formData.biayaAdmin) + Number(formData.cetakEtbpkp);
+    const tBayar = Number(formData.totalBayar) || 0;
+    const admin = Number(formData.biayaAdmin) || settings.biayaAdmin;
+    const etbpkp = Number(formData.cetakEtbpkp) || settings.cetakEtbpkp;
+    const grandTotal = tBayar + admin + etbpkp;
     setFormData(prev => ({
       ...prev,
-      tagihan: subtotal,
-      totalPembayaran: total,
-      biayaAdmin: settings.biayaAdmin,
-      cetakEtbpkp: settings.cetakEtbpkp,
+      totalBayar: tBayar,
+      biayaAdmin: admin,
+      cetakEtbpkp: etbpkp,
+      jumlahHarusDibayar: grandTotal,
       namaAgen: settings.namaAgen
     }));
-  }, [formData.pkbPokok, formData.jrPokok, formData.jrDenda, settings]);
+  }, [formData.totalBayar, formData.biayaAdmin, formData.cetakEtbpkp, settings]);
 
   const handleInstallClick = async () => {
     if (!deferredPrompt) {
@@ -227,9 +221,7 @@ export default function App() {
     let extractedNoRef = '';
     let extractedBuktiBayar = '';
     let extractedNoMesin = '';
-    let extractedPkb = 0;
-    let extractedJr = 0;
-    let extractedJrDenda = 0;
+    let extractedTotalBayar = 0;
 
     for (const line of lines) {
       const upperLine = line.toUpperCase();
@@ -261,25 +253,18 @@ export default function App() {
           if (match) extractedBuktiBayar = match[0];
         }
       } else if (leftKey.includes('MESIN') || leftKey.includes('RANGKA')) {
-        if (rightVal) extractedNoMesin = rightVal;
-        else {
-          const clean = upperLine.replace(/MESIN|RANGKA/g, '').replace(/[:|]/g, '').trim();
+        if (rightVal) {
+          extractedNoMesin = rightVal.replace(/^(NOMOR|NO\.?)\s*/i, '');
+        } else {
+          const clean = upperLine.replace(/MESIN|RANGKA|NOMOR|NO\.?/g, '').replace(/[:|]/g, '').trim();
           if (clean) extractedNoMesin = clean;
         }
-      } else if (leftKey.includes('PKB') || leftKey.includes('PAJAK')) {
+      } else if (leftKey.includes('TOTAL') || leftKey.includes('JUMLAH') || leftKey.includes('BAYAR') || leftKey.includes('TAGIHAN') || leftKey.includes('PKB')) {
         const match = rightVal.match(/[\d]{1,3}(?:[.,]\d{3})+|\d{4,9}/);
-        if (match) extractedPkb = parseInt(match[0].replace(/[^\d]/g, ''), 10);
-      } else if (leftKey.includes('JASA') || leftKey.includes('RAHARJA') || leftKey.includes('JR')) {
-        if (leftKey.includes('DENDA')) {
-          const match = rightVal.match(/[\d]{1,3}(?:[.,]\d{3})+|\d{1,8}/);
-          if (match) extractedJrDenda = parseInt(match[0].replace(/[^\d]/g, ''), 10);
-        } else {
-          const match = rightVal.match(/[\d]{1,3}(?:[.,]\d{3})+|\d{4,9}/);
-          if (match) extractedJr = parseInt(match[0].replace(/[^\d]/g, ''), 10);
+        if (match) {
+          const val = parseInt(match[0].replace(/[^\d]/g, ''), 10);
+          if (val > 10000) extractedTotalBayar = val;
         }
-      } else if (leftKey.includes('DENDA') || leftKey.includes('SWDKLLJ') || leftKey.includes('PERKIRAAN')) {
-        const match = rightVal.match(/[\d]{1,3}(?:[.,]\d{3})+|\d{1,8}/);
-        if (match) extractedJrDenda = parseInt(match[0].replace(/[^\d]/g, ''), 10);
       }
     }
 
@@ -292,15 +277,10 @@ export default function App() {
     const finalNoMesin = extractedNoMesin || formData.noMesin;
 
     const numbers = upperText.match(/(?:Rp\.?|\b)\s*([\d]{1,3}(?:[.,]\d{3})+|\d{4,9})/g);
-    let pkb = extractedPkb || 2450000;
-    let jr = extractedJr || 143000;
-    let jrDenda = extractedJrDenda || 0;
-
-    if (!extractedPkb && numbers && numbers.length > 0) {
-      const cleanNums = numbers.map(n => parseInt(n.replace(/[^\d]/g, ''), 10)).filter(n => n > 10000);
-      if (cleanNums.length > 0) pkb = cleanNums[0];
-      if (cleanNums.length > 1) jr = cleanNums[1];
-      if (cleanNums.length > 2) jrDenda = cleanNums[2];
+    let totalByr = extractedTotalBayar || 2500000;
+    if (!extractedTotalBayar && numbers && numbers.length > 0) {
+      const cleanNums = numbers.map(n => parseInt(n.replace(/[^\d]/g, ''), 10)).filter(n => n > 50000);
+      if (cleanNums.length > 0) totalByr = cleanNums[cleanNums.length - 1];
     }
 
     setFormData(prev => ({
@@ -310,9 +290,7 @@ export default function App() {
       noBukti: finalBuktiBayar,
       atasNama: finalAtasNama,
       noMesin: finalNoMesin,
-      pkbPokok: pkb,
-      jrPokok: jr,
-      jrDenda: jrDenda,
+      totalBayar: totalByr,
       tanggal: new Date().toISOString().slice(0, 16)
     }));
   };
@@ -326,16 +304,12 @@ export default function App() {
       noBukti: 'ETB-' + Math.floor(10000000 + Math.random() * 90000000),
       atasNama: 'SITI AMINAH, DR.',
       noPolisi: 'W 4589 QJ',
-      warnaKendaraan: 'PUTIH MUTIARA',
       tanggalMasaLaku: '12-08-2028',
-      pkbPokok: 2150000,
-      jrPokok: 143000,
-      jrDenda: 25000,
       noMesin: 'P10A1-1239842',
-      tagihan: 2318000,
+      totalBayar: 2318000,
       biayaAdmin: settings.biayaAdmin,
       cetakEtbpkp: settings.cetakEtbpkp,
-      totalPembayaran: 2318000 + settings.biayaAdmin + settings.cetakEtbpkp,
+      jumlahHarusDibayar: 2318000 + settings.biayaAdmin + settings.cetakEtbpkp,
       namaAgen: settings.namaAgen,
       createdAt: new Date().toISOString(),
     });
@@ -406,31 +380,26 @@ export default function App() {
         commands += ESC + '\x61\x01'; // Center alignment
         commands += ESC + '\x45\x01'; // Bold ON
         commands += 'E-SAMSAT JAWA TIMUR\n';
-        commands += 'BUKTI PEMBAYARAN PPOB e-TBPKP\n';
+        commands += 'BUKTI PEMBAYARAN PAJAK KENDARAAN\n';
         commands += ESC + '\x45\x00'; // Bold OFF
         commands += '--------------------------------\n';
         commands += ESC + '\x61\x00'; // Left alignment
-        commands += `Tgl   : ${formData.tanggal}\n`;
-        commands += `NoRef : ${formData.noRef}\n`;
-        commands += `Bukti Bayar : ${formData.noBukti}\n`;
-        commands += `Status: ${formData.status}\n`;
+        commands += `Tgl Transaksi: ${formData.tanggal.replace('T', ' ')}\n`;
+        commands += `NoRef        : ${formData.noRef}\n`;
+        commands += `Bukti Bayar  : ${formData.noBukti}\n`;
+        commands += `Status       : ${formData.status}\n`;
         commands += '--------------------------------\n';
-        commands += `Atas Nama   : ${formData.atasNama}\n`;
-        commands += `No. Polisi  : ${formData.noPolisi}\n`;
-        commands += `Warna       : ${formData.warnaKendaraan}\n`;
-        commands += `Masa Laku   : ${formData.tanggalMasaLaku}\n`;
-        commands += `No. Mesin   : ${formData.noMesin}\n`;
+        commands += `Atas Nama    : ${formData.atasNama}\n`;
+        commands += `No. Polisi   : ${formData.noPolisi}\n`;
+        commands += `Masa Laku    : ${formData.tanggalMasaLaku}\n`;
+        commands += `No. Mesin    : ${formData.noMesin}\n`;
         commands += '--------------------------------\n';
-        commands += `PKB Pokok   : Rp ${formData.pkbPokok.toLocaleString('id-ID')}\n`;
-        commands += `JR Pokok    : Rp ${formData.jrPokok.toLocaleString('id-ID')}\n`;
-        if (formData.jrDenda > 0) {
-          commands += `Jr Denda    : Rp ${formData.jrDenda.toLocaleString('id-ID')}\n`;
-        }
-        commands += `Biaya Admin : Rp ${formData.biayaAdmin.toLocaleString('id-ID')}\n`;
-        commands += `Cetak eTBPKP: Rp ${formData.cetakEtbpkp.toLocaleString('id-ID')}\n`;
+        commands += `Total Bayar  : Rp ${formData.totalBayar.toLocaleString('id-ID')}\n`;
+        commands += `Admin Loket  : Rp ${formData.biayaAdmin.toLocaleString('id-ID')}\n`;
+        commands += `Cetak eTBPKP : Rp ${formData.cetakEtbpkp.toLocaleString('id-ID')}\n`;
         commands += '--------------------------------\n';
         commands += ESC + '\x45\x01'; // Bold ON
-        commands += `TOTAL BAYAR : Rp ${formData.totalPembayaran.toLocaleString('id-ID')}\n`;
+        commands += `JUMLAH DIBAYAR: Rp ${formData.jumlahHarusDibayar.toLocaleString('id-ID')}\n`;
         commands += ESC + '\x45\x00'; // Bold OFF
         commands += '--------------------------------\n';
         commands += ESC + '\x61\x01'; // Center alignment
@@ -509,7 +478,7 @@ export default function App() {
           try {
             await navigator.share({
               title: 'Struk e-Samsat Jatim',
-              text: `Bukti Pembayaran e-Samsat Jatim No. Pol ${formData.noPolisi} - Total Rp ${formData.totalPembayaran.toLocaleString('id-ID')} (${formData.status})`,
+              text: `Bukti Pembayaran e-Samsat Jatim No. Pol ${formData.noPolisi} - Total Rp ${formData.jumlahHarusDibayar.toLocaleString('id-ID')} (${formData.status})`,
               files: [file],
             });
           } catch (err) {
@@ -792,15 +761,7 @@ export default function App() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Warna Kendaraan</label>
-                  <input
-                    type="text"
-                    value={formData.warnaKendaraan}
-                    onChange={e => handleInputChange('warnaKendaraan', e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 uppercase focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
+
 
 
 
@@ -825,42 +786,12 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">PKB Pokok (Rp)</label>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Total Bayar (Rp)</label>
                   <input
                     type="number"
-                    value={formData.pkbPokok}
-                    onChange={e => handleInputChange('pkbPokok', Number(e.target.value))}
+                    value={formData.totalBayar}
+                    onChange={e => handleInputChange('totalBayar', Number(e.target.value))}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-emerald-400 font-bold focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">JR Pokok (Jasa Raharja) (Rp)</label>
-                  <input
-                    type="number"
-                    value={formData.jrPokok}
-                    onChange={e => handleInputChange('jrPokok', Number(e.target.value))}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Jr Denda (Rp)</label>
-                  <input
-                    type="number"
-                    value={formData.jrDenda}
-                    onChange={e => handleInputChange('jrDenda', Number(e.target.value))}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Biaya Admin (Rp)</label>
-                  <input
-                    type="number"
-                    value={formData.biayaAdmin}
-                    onChange={e => handleInputChange('biayaAdmin', Number(e.target.value))}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
 
@@ -873,14 +804,24 @@ export default function App() {
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Biaya admin loket (Rp)</label>
+                  <input
+                    type="number"
+                    value={formData.biayaAdmin}
+                    onChange={e => handleInputChange('biayaAdmin', Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
               </div>
 
               {/* Total Calculation Display */}
               <div className="mt-4 p-4 bg-emerald-950/40 rounded-xl border border-emerald-800/60 flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-emerald-300 font-medium">Total Tagihan Keseluruhan</p>
+                  <p className="text-xs text-emerald-300 font-medium">Jumlah yg harus dibayar</p>
                   <p className="text-xl font-extrabold text-emerald-400">
-                    Rp {formData.totalPembayaran.toLocaleString('id-ID')}
+                    Rp {formData.jumlahHarusDibayar.toLocaleString('id-ID')}
                   </p>
                 </div>
                 <div className="text-right">
@@ -907,89 +848,75 @@ export default function App() {
                   className="bg-white text-slate-900 p-6 rounded-none shadow-2xl w-[340px] font-mono text-xs leading-tight border border-slate-300 select-none"
                   style={{ fontFamily: '"Courier New", Courier, monospace' }}
                 >
-                  <div className="text-center pb-3 border-b border-dashed border-slate-400 space-y-1">
-                    <p className="font-bold text-sm tracking-wider">E-SAMSAT JAWA TIMUR</p>
-                    <p className="text-[11px] font-semibold text-slate-700">BUKTI PEMBAYARAN PPOB e-TBPKP</p>
-                    <p className="text-[10px] text-slate-500">Layanan Samsat Keliling / PPOB Resmi</p>
+                  <div className="text-center pb-3 border-b border-dashed border-black space-y-1">
+                    <p className="font-extrabold text-sm tracking-wider text-black">E-SAMSAT JAWA TIMUR</p>
+                    <p className="text-[11px] font-extrabold text-black">BUKTI PEMBAYARAN PAJAK KENDARAAN</p>
+                    <p className="text-[10px] font-bold text-black">Layanan Samsat Keliling / PPOB Resmi</p>
                   </div>
 
-                  <div className="py-2 border-b border-dashed border-slate-400 space-y-1 text-[11px]">
+                  <div className="py-2 border-b border-dashed border-black space-y-1 text-[11px] font-bold text-black">
                     <div className="flex justify-between">
-                      <span className="text-slate-600">Tgl/Waktu:</span>
-                      <span className="font-semibold">{formData.tanggal.replace('T', ' ')}</span>
+                      <span className="text-black font-bold">Tanggal Transaksi:</span>
+                      <span className="font-bold text-black">{formData.tanggal.replace('T', ' ')}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-600">No. Ref:</span>
-                      <span className="font-semibold">{formData.noRef}</span>
+                      <span className="text-black font-bold">No. Ref:</span>
+                      <span className="font-bold text-black">{formData.noRef}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-600">Bukti Bayar:</span>
-                      <span className="font-semibold">{formData.noBukti}</span>
+                      <span className="text-black font-bold">Bukti Bayar:</span>
+                      <span className="font-bold text-black">{formData.noBukti}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-600">Status:</span>
-                      <span className="font-bold text-emerald-700">{formData.status}</span>
-                    </div>
-                  </div>
-
-                  <div className="py-2 border-b border-dashed border-slate-400 space-y-1 text-[11px]">
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Atas Nama:</span>
-                      <span className="font-bold truncate max-w-[180px] text-right">{formData.atasNama}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">No. Polisi:</span>
-                      <span className="font-bold text-sm text-emerald-800">{formData.noPolisi}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Warna:</span>
-                      <span className="text-right">{formData.warnaKendaraan}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Masa Laku:</span>
-                      <span className="text-right">{formData.tanggalMasaLaku}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">No. Mesin:</span>
-                      <span className="text-right">{formData.noMesin}</span>
+                      <span className="text-black font-bold">Status:</span>
+                      <span className="font-bold text-black">{formData.status}</span>
                     </div>
                   </div>
 
-                  <div className="py-2 border-b border-dashed border-slate-400 space-y-1 text-[11px]">
+                  <div className="py-2 border-b border-dashed border-black space-y-1 text-[11px] font-bold text-black">
                     <div className="flex justify-between">
-                      <span className="text-slate-600">PKB Pokok:</span>
-                      <span>Rp {formData.pkbPokok.toLocaleString('id-ID')}</span>
+                      <span className="text-black font-bold">Atas Nama:</span>
+                      <span className="font-bold text-black truncate max-w-[180px] text-right">{formData.atasNama}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-600">JR Pokok:</span>
-                      <span>Rp {formData.jrPokok.toLocaleString('id-ID')}</span>
-                    </div>
-                    {formData.jrDenda > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-slate-600">Jr Denda:</span>
-                        <span>Rp {formData.jrDenda.toLocaleString('id-ID')}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Biaya Admin:</span>
-                      <span>Rp {formData.biayaAdmin.toLocaleString('id-ID')}</span>
+                      <span className="text-black font-bold">No. Polisi:</span>
+                      <span className="font-bold text-black">{formData.noPolisi}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-600">Cetak e-TBPKP:</span>
-                      <span>Rp {formData.cetakEtbpkp.toLocaleString('id-ID')}</span>
+                      <span className="text-black font-bold">Masa Laku:</span>
+                      <span className="font-bold text-black text-right">{formData.tanggalMasaLaku}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-black font-bold">No. Mesin:</span>
+                      <span className="font-bold text-black text-right">{formData.noMesin}</span>
                     </div>
                   </div>
 
-                  <div className="py-2 border-b border-dashed border-slate-400 text-xs font-bold flex justify-between items-center">
-                    <span>TOTAL BAYAR:</span>
-                    <span className="text-sm text-emerald-700">Rp {formData.totalPembayaran.toLocaleString('id-ID')}</span>
+                  <div className="py-2 border-b border-dashed border-black space-y-1 text-[11px] font-bold text-black">
+                    <div className="flex justify-between">
+                      <span className="text-black font-bold">Total Bayar:</span>
+                      <span className="text-black font-bold">Rp {formData.totalBayar.toLocaleString('id-ID')}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-black font-bold">Biaya admin loket:</span>
+                      <span className="text-black font-bold">Rp {formData.biayaAdmin.toLocaleString('id-ID')}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-black font-bold">Cetak e-TBPKP:</span>
+                      <span className="text-black font-bold">Rp {formData.cetakEtbpkp.toLocaleString('id-ID')}</span>
+                    </div>
                   </div>
 
-                  <div className="pt-3 text-center space-y-1 text-[10px] text-slate-600">
-                    <p className="font-bold text-slate-800">Agen: {formData.namaAgen}</p>
-                    <p>Terima Kasih Atas Pembayaran Anda</p>
-                    <p>Simpan Struk Ini Sebagai Bukti Sah</p>
-                    <p className="text-[9px] text-slate-400 mt-2">=== e-Samsat Jatim Kasir PWA ===</p>
+                  <div className="py-2 border-b border-dashed border-black text-xs font-extrabold flex justify-between items-center text-black">
+                    <span className="text-black font-extrabold">JUMLAH YG HARUS DIBAYAR:</span>
+                    <span className="text-sm text-black font-extrabold">Rp {formData.jumlahHarusDibayar.toLocaleString('id-ID')}</span>
+                  </div>
+
+                  <div className="pt-3 text-center space-y-1 text-[10px] font-bold text-black">
+                    <p className="font-extrabold text-black">Agen: {formData.namaAgen}</p>
+                    <p className="font-bold text-black">Terima Kasih Atas Pembayaran Anda</p>
+                    <p className="font-bold text-black">Simpan Struk Ini Sebagai Bukti Sah</p>
+                    <p className="text-[9px] font-bold text-black mt-2">=== e-Samsat Jatim Kasir PWA ===</p>
                   </div>
                 </div>
               </div>
@@ -1068,14 +995,14 @@ export default function App() {
                         </span>
                         <span className="text-xs text-slate-400">{tx.noRef}</span>
                       </div>
-                      <p className="text-sm font-bold text-slate-100">{tx.atasNama} ({tx.warnaKendaraan})</p>
+                      <p className="text-sm font-bold text-slate-100">{tx.atasNama}</p>
                       <p className="text-xs text-slate-400">Waktu: {tx.tanggal.replace('T', ' ')} • Agen: {tx.namaAgen}</p>
                     </div>
 
                     <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-700">
                       <div className="text-left sm:text-right">
                         <p className="text-xs text-slate-400">Total Pembayaran</p>
-                        <p className="text-sm font-extrabold text-emerald-400">Rp {tx.totalPembayaran.toLocaleString('id-ID')}</p>
+                        <p className="text-sm font-extrabold text-emerald-400">Rp {tx.jumlahHarusDibayar.toLocaleString('id-ID')}</p>
                       </div>
                       <button
                         onClick={() => {
