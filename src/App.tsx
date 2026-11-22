@@ -457,7 +457,7 @@ export default function App() {
     confetti({ particleCount: 70, spread: 70, origin: { y: 0.6 } });
   };
 
-  // Export Receipt as PNG Image with robust fallback
+  // Export Receipt as PNG Image
   const downloadReceiptImage = async () => {
     if (!receiptRef.current) return;
     try {
@@ -476,17 +476,10 @@ export default function App() {
       a.click();
       document.body.removeChild(a);
 
-      // Also open print/view window as reliable fallback for mobile
-      const win = window.open();
-      if (win) {
-        win.document.write(`<html><head><title>Struk e-Samsat Jatim</title></head><body style="text-align:center;padding:20px;font-family:sans-serif;"><p style="font-weight:bold;margin-bottom:10px;">Struk Berhasil Digenerate. Tekan tombol simpan / print di bawah:</p><img src="${image}" style="max-width:320px;border:1px solid #ccc;box-shadow:0 2px 8px rgba(0,0,0,0.2);" /><br/><br/><button onclick="window.print()" style="padding:10px 20px;background:#059669;color:white;border:none;border-radius:8px;font-weight:bold;cursor:pointer;">Cetak / Simpan PDF</button></body></html>`);
-        win.document.close();
-      }
-
       confetti({ particleCount: 40, spread: 60, origin: { y: 0.7 } });
     } catch (e) {
       console.error('Export PNG error:', e);
-      window.print();
+      alert('Gagal mengunduh gambar struk PNG.');
     }
   };
 
