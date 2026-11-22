@@ -370,18 +370,29 @@ export default function App() {
     alert('Printer diputus.');
   };
 
-  // Generate ESC/POS Byte Commands for 58mm / 80mm Thermal Printer
+  // Generate ESC/POS Byte Commands for 58mm / 80mm Thermal Printer & auto-search bluetooth
   const printThermalReceipt = async () => {
     setIsPrinting(true);
     try {
-      if (!printerDevice || !printerDevice.gatt) {
+      const nav = navigator as any;
+      if (!nav.bluetooth) {
         setIsPrinting(false);
-        alert('Printer Bluetooth belum terhubung! Silakan pilih dan hubungkan printer thermal Bluetooth terlebih dahulu melalui tombol "Cari & Hubungkan" di menu Pengaturan (ikon gear).');
-        setActiveTab('settings');
+        alert('Web Bluetooth API tidak didukung di browser ini. Gunakan Google Chrome di Android atau Laptop.');
         return;
       }
 
-      const server = await printerDevice.gatt.connect();
+      let device = printerDevice;
+      if (!device || !device.gatt) {
+        device = await nav.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb', '0000ff00-0000-1000-8000-00805f9b34fb']
+        });
+        setPrinterDevice(device);
+        setPrinterName(device.name || 'Printer Thermal Bluetooth');
+        localStorage.setItem('esamsat_printer_name', device.name || 'Printer Thermal Bluetooth');
+      }
+
+      const server = await device.gatt.connect();
       const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb').catch(() => null) 
         || await server.getPrimaryService('0000ff00-0000-1000-8000-00805f9b34fb').catch(() => null);
 
@@ -443,7 +454,7 @@ export default function App() {
     } catch (error) {
       console.error('Print error:', error);
       setIsPrinting(false);
-      alert('Gagal mencetak ke printer Bluetooth. Pastikan printer dalam keadaan menyala dan terhubung.');
+      alert('Gagal mencetak ke printer Bluetooth atau dibatalkan oleh pengguna.');
     }
   };
 
@@ -1078,53 +1089,6 @@ export default function App() {
                 Pengaturan Agen & Printer Thermal
               </h2>
               <p className="text-xs text-slate-400">Konfigurasi nama agen PPOB, biaya admin, dan koneksi printer Bluetooth 58mm/80mm.</p>
-            </div>
-
-            {/* Printer Bluetooth Settings */}
-            <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-4 shadow-xl">
-              <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                <Bluetooth className="w-4 h-4 text-emerald-400" />
-                <span>Koneksi Printer Bluetooth Thermal</span>
-              </h3>
-
-              <div className="p-4 bg-slate-900 rounded-xl border border-slate-700 flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-slate-400">Status Printer Terhubung:</p>
-                  <p className="text-sm font-bold text-emerald-400 flex items-center gap-1.5 mt-1">
-                    {printerName ? (
-                      <>
-                        <BluetoothConnected className="w-4 h-4 text-emerald-400 animate-pulse" />
-                        <span>{printerName}</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-                        <span className="text-slate-400 font-normal">Belum terhubung (Default Print Browser)</span>
-                      </>
-                    )}
-                  </p>
-                </div>
-
-                {printerName ? (
-                  <button
-                    onClick={disconnectPrinter}
-                    className="bg-red-900/40 hover:bg-red-900/60 text-red-300 text-xs px-3 py-2 rounded-lg border border-red-800 transition"
-                  >
-                    Putus
-                  </button>
-                ) : (
-                  <button
-                    onClick={connectBluetoothPrinter}
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-4 py-2 rounded-lg font-semibold shadow transition flex items-center gap-1.5"
-                  >
-                    <Bluetooth className="w-4 h-4" />
-                    <span>Cari & Hubungkan</span>
-                  </button>
-                )}
-              </div>
-              <p className="text-xs text-slate-400">
-                *Alamat printer disimpan otomatis di browser (`localStorage`) agar tidak perlu pairing ulang setiap kali mencetak struk.
-              </p>
             </div>
 
             {/* Agent & Default Fees Form */}
