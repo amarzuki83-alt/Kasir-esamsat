@@ -374,81 +374,76 @@ export default function App() {
   const printThermalReceipt = async () => {
     setIsPrinting(true);
     try {
-      // If Web Bluetooth connected device exists
-      if (printerDevice && printerDevice.gatt) {
-        const server = await printerDevice.gatt.connect();
-        // Search for printing service & characteristic
-        const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb').catch(() => null) 
-          || await server.getPrimaryService('0000ff00-0000-1000-8000-00805f9b34fb').catch(() => null);
-
-        if (!service) {
-          throw new Error('Printer service ESC/POS tidak ditemukan pada perangkat.');
-        }
-
-        const characteristic = await service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb').catch(() => null)
-          || await service.getCharacteristic('0000ff02-0000-1000-8000-00805f9b34fb').catch(() => null)
-          || (await service.characteristics())[0];
-
-        if (!characteristic) {
-          throw new Error('Karakteristik write printer tidak ditemukan.');
-        }
-
-        const encoder = new TextEncoder();
-        const ESC = '\x1B';
-        const GS = '\x1D';
-        
-        let commands = '';
-        commands += ESC + '@'; // Initialize
-        commands += ESC + '\x61\x01'; // Center alignment
-        commands += ESC + '\x45\x01'; // Bold ON
-        commands += 'E-SAMSAT JAWA TIMUR\n';
-        commands += 'BUKTI PEMBAYARAN PAJAK KENDARAAN\n';
-        commands += ESC + '\x45\x00'; // Bold OFF
-        commands += '--------------------------------\n';
-        commands += ESC + '\x61\x00'; // Left alignment
-        commands += `Tgl Transaksi: ${formData.tanggal.replace('T', ' ')}\n`;
-        commands += `NoRef        : ${formData.noRef}\n`;
-        commands += `Bukti Bayar  : ${formData.noBukti}\n`;
-        commands += `Status       : ${formData.status}\n`;
-        commands += '--------------------------------\n';
-        commands += `Atas Nama    : ${formData.atasNama}\n`;
-        commands += `No. Polisi   : ${formData.noPolisi}\n`;
-        commands += `Masa Laku    : ${formData.tanggalMasaLaku}\n`;
-        commands += `No. Mesin    : ${formData.noMesin}\n`;
-        commands += '--------------------------------\n';
-        commands += `Total Bayar  : Rp ${formData.totalBayar.toLocaleString('id-ID')}\n`;
-        commands += `Admin Loket  : Rp ${formData.biayaAdmin.toLocaleString('id-ID')}\n`;
-        commands += `Cetak eTBPKP : Rp ${formData.cetakEtbpkp.toLocaleString('id-ID')}\n`;
-        commands += '--------------------------------\n';
-        commands += ESC + '\x45\x01'; // Bold ON
-        commands += `JUMLAH DIBAYAR: Rp ${formData.jumlahHarusDibayar.toLocaleString('id-ID')}\n`;
-        commands += ESC + '\x45\x00'; // Bold OFF
-        commands += '--------------------------------\n';
-        commands += ESC + '\x61\x01'; // Center alignment
-        commands += `Agen: ${formData.namaAgen}\n`;
-        commands += 'Terima Kasih Atas Pembayaran Anda\n';
-        commands += 'Simpan Struk Ini Sebagai Bukti Sah\n\n\n';
-        commands += GS + '\x56\x42\x00'; // Cut paper
-
-        const dataBytes = encoder.encode(commands);
-        // Write in chunks if needed
-        await characteristic.writeValue(dataBytes);
-
+      if (!printerDevice || !printerDevice.gatt) {
         setIsPrinting(false);
-        alert('Struk berhasil dicetak melalui Printer Bluetooth!');
-        saveTransactionToHistory();
-      } else {
-        // Fallback simulation / Web Print dialog
-        window.print();
-        setIsPrinting(false);
-        saveTransactionToHistory();
+        alert('Printer Bluetooth belum terhubung! Silakan pilih dan hubungkan printer thermal Bluetooth terlebih dahulu melalui tombol "Cari & Hubungkan" di menu Pengaturan (ikon gear).');
+        setActiveTab('settings');
+        return;
       }
+
+      const server = await printerDevice.gatt.connect();
+      const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb').catch(() => null) 
+        || await server.getPrimaryService('0000ff00-0000-1000-8000-00805f9b34fb').catch(() => null);
+
+      if (!service) {
+        throw new Error('Printer service ESC/POS tidak ditemukan pada perangkat.');
+      }
+
+      const characteristic = await service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb').catch(() => null)
+        || await service.getCharacteristic('0000ff02-0000-1000-8000-00805f9b34fb').catch(() => null)
+        || (await service.characteristics())[0];
+
+      if (!characteristic) {
+        throw new Error('Karakteristik write printer tidak ditemukan.');
+      }
+
+      const encoder = new TextEncoder();
+      const ESC = '\x1B';
+      const GS = '\x1D';
+      
+      let commands = '';
+      commands += ESC + '@'; // Initialize
+      commands += ESC + '\x61\x01'; // Center alignment
+      commands += ESC + '\x45\x01'; // Bold ON
+      commands += 'E-SAMSAT JAWA TIMUR\n';
+      commands += 'BUKTI PEMBAYARAN PAJAK KENDARAAN\n';
+      commands += ESC + '\x45\x00'; // Bold OFF
+      commands += '--------------------------------\n';
+      commands += ESC + '\x61\x00'; // Left alignment
+      commands += `Tanggal      : ${formData.tanggal.replace('T', ' ')}\n`;
+      commands += `No. Ref      : ${formData.noRef}\n`;
+      commands += `Bukti Bayar  : ${formData.noBukti}\n`;
+      commands += `Status       : ${formData.status}\n`;
+      commands += '--------------------------------\n';
+      commands += `Atas Nama    : ${formData.atasNama}\n`;
+      commands += `No. Polisi   : ${formData.noPolisi}\n`;
+      commands += `Masa Laku    : ${formData.tanggalMasaLaku}\n`;
+      commands += `No. Mesin    : ${formData.noMesin}\n`;
+      commands += '--------------------------------\n';
+      commands += `Total Bayar  : Rp ${formData.totalBayar.toLocaleString('id-ID')}\n`;
+      commands += `Admin Loket  : Rp ${formData.biayaAdmin.toLocaleString('id-ID')}\n`;
+      commands += `Cetak eTBPKP : Rp ${formData.cetakEtbpkp.toLocaleString('id-ID')}\n`;
+      commands += '--------------------------------\n';
+      commands += ESC + '\x45\x01'; // Bold ON
+      commands += `JUMLAH DIBAYAR: Rp ${formData.jumlahHarusDibayar.toLocaleString('id-ID')}\n`;
+      commands += ESC + '\x45\x00'; // Bold OFF
+      commands += '--------------------------------\n';
+      commands += ESC + '\x61\x01'; // Center alignment
+      commands += `Agen: ${formData.namaAgen}\n`;
+      commands += 'Terima Kasih Atas Pembayaran Anda\n';
+      commands += 'Simpan Struk Ini Sebagai Bukti Sah\n\n\n';
+      commands += GS + '\x56\x42\x00'; // Cut paper
+
+      const dataBytes = encoder.encode(commands);
+      await characteristic.writeValue(dataBytes);
+
+      setIsPrinting(false);
+      alert('Struk berhasil dicetak melalui Printer Thermal Bluetooth!');
+      saveTransactionToHistory();
     } catch (error) {
       console.error('Print error:', error);
       setIsPrinting(false);
-      alert('Gagal mencetak ke printer Bluetooth. Menggunakan dialog cetak browser (PDF/Standard Print).');
-      window.print();
-      saveTransactionToHistory();
+      alert('Gagal mencetak ke printer Bluetooth. Pastikan printer dalam keadaan menyala dan terhubung.');
     }
   };
 
