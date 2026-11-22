@@ -462,24 +462,36 @@ export default function App() {
     confetti({ particleCount: 70, spread: 70, origin: { y: 0.6 } });
   };
 
-  // Export Receipt as PNG Image
+  // Export Receipt as PNG Image with robust fallback
   const downloadReceiptImage = async () => {
     if (!receiptRef.current) return;
     try {
       const canvas = await html2canvas(receiptRef.current, {
         scale: 2,
         backgroundColor: '#ffffff',
-        logging: false
+        logging: false,
+        useCORS: true
       });
       const image = canvas.toDataURL('image/png');
+      
       const a = document.createElement('a');
       a.href = image;
-      a.download = `Struk-eSamsat-${formData.noPolisi.replace(/\s+/g, '-')}-${formData.noRef}.png`;
+      a.download = `Struk-eSamsat-${formData.noPolisi.replace(/\s+/g, '-')}-${formData.noRef || 'bayar'}.png`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
+
+      // Also open print/view window as reliable fallback for mobile
+      const win = window.open();
+      if (win) {
+        win.document.write(`<html><head><title>Struk e-Samsat Jatim</title></head><body style="text-align:center;padding:20px;font-family:sans-serif;"><p style="font-weight:bold;margin-bottom:10px;">Struk Berhasil Digenerate. Tekan tombol simpan / print di bawah:</p><img src="${image}" style="max-width:320px;border:1px solid #ccc;box-shadow:0 2px 8px rgba(0,0,0,0.2);" /><br/><br/><button onclick="window.print()" style="padding:10px 20px;background:#059669;color:white;border:none;border-radius:8px;font-weight:bold;cursor:pointer;">Cetak / Simpan PDF</button></body></html>`);
+        win.document.close();
+      }
+
       confetti({ particleCount: 40, spread: 60, origin: { y: 0.7 } });
     } catch (e) {
       console.error('Export PNG error:', e);
-      alert('Gagal mengunduh gambar struk.');
+      window.print();
     }
   };
 
@@ -958,14 +970,25 @@ export default function App() {
               </div>
 
               {/* Action Buttons for Printing & Export */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <button
+                  onClick={() => {
+                    window.print();
+                    saveTransactionToHistory();
+                  }}
+                  className="bg-emerald-700 hover:bg-emerald-600 text-white py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition active:scale-95"
+                >
+                  <Printer className="w-5 h-5 text-emerald-200" />
+                  <span>Cetak Printer Tinta / Standar (USB/WiFi)</span>
+                </button>
+
                 <button
                   onClick={printThermalReceipt}
                   disabled={isPrinting}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition active:scale-95 disabled:opacity-50"
                 >
-                  <Printer className="w-5 h-5" />
-                  <span>{isPrinting ? 'Mencetak...' : (printerName ? 'Cetak Bluetooth' : 'Cetak / Print')}</span>
+                  <Bluetooth className="w-5 h-5" />
+                  <span>{isPrinting ? 'Mencetak...' : (printerName ? `Thermal BT (${printerName})` : 'Cetak Thermal Bluetooth')}</span>
                 </button>
 
                 <button
@@ -973,7 +996,7 @@ export default function App() {
                   className="bg-slate-700 hover:bg-slate-600 text-white py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition active:scale-95"
                 >
                   <Download className="w-5 h-5 text-emerald-400" />
-                  <span>Simpan PNG</span>
+                  <span>Simpan Gambar PNG</span>
                 </button>
 
                 <button
@@ -981,7 +1004,7 @@ export default function App() {
                   className="bg-sky-600 hover:bg-sky-500 text-white py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition active:scale-95"
                 >
                   <Share2 className="w-5 h-5" />
-                  <span>Bagikan Struk</span>
+                  <span>Bagikan Struk (WA/Medsos)</span>
                 </button>
               </div>
             </div>
