@@ -385,27 +385,43 @@ export default function App() {
       if (!device || !device.gatt) {
         device = await nav.bluetooth.requestDevice({
           acceptAllDevices: true,
-          optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb', '0000ff00-0000-1000-8000-00805f9b34fb']
+          optionalServices: [
+            '000018f0-0000-1000-8000-00805f9b34fb', 
+            '0000ff00-0000-1000-8000-00805f9b34fb',
+            '49535343-fe7d-4ae5-8fa9-9fafd205e455',
+            '0000ffe0-0000-1000-8000-00805f9b34fb'
+          ]
         });
         setPrinterDevice(device);
         setPrinterName(device.name || 'Printer Thermal Bluetooth');
         localStorage.setItem('esamsat_printer_name', device.name || 'Printer Thermal Bluetooth');
       }
 
-      const server = await device.gatt.connect();
-      const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb').catch(() => null) 
-        || await server.getPrimaryService('0000ff00-0000-1000-8000-00805f9b34fb').catch(() => null);
+      if (!device.gatt.connected) {
+        await device.gatt.connect();
+      }
+      const server = device.gatt;
 
-      if (!service) {
-        throw new Error('Printer service ESC/POS tidak ditemukan pada perangkat.');
+      const services = await server.getPrimaryServices();
+      let targetCharacteristic: any = null;
+
+      for (const service of services) {
+        try {
+          const characteristics = await service.getCharacteristics();
+          for (const char of characteristics) {
+            if (char.properties.write || char.properties.writeWithoutResponse) {
+              targetCharacteristic = char;
+              break;
+            }
+          }
+          if (targetCharacteristic) break;
+        } catch (err) {
+          console.warn('Skipping service:', err);
+        }
       }
 
-      const characteristic = await service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb').catch(() => null)
-        || await service.getCharacteristic('0000ff02-0000-1000-8000-00805f9b34fb').catch(() => null)
-        || (await service.characteristics())[0];
-
-      if (!characteristic) {
-        throw new Error('Karakteristik write printer tidak ditemukan.');
+      if (!targetCharacteristic) {
+        throw new Error('Tidak ditemukan karakteristik write ESC/POS pada printer.');
       }
 
       const encoder = new TextEncoder();
@@ -446,7 +462,16 @@ export default function App() {
       commands += GS + '\x56\x42\x00'; // Cut paper
 
       const dataBytes = encoder.encode(commands);
-      await characteristic.writeValue(dataBytes);
+      const CHUNK_SIZE = 100;
+      for (let i = 0; i < dataBytes.length; i += CHUNK_SIZE) {
+        const chunk = dataBytes.slice(i, i + CHUNK_SIZE);
+        if (targetCharacteristic.properties.writeWithoutResponse) {
+          await targetCharacteristic.writeValueWithoutResponse(chunk);
+        } else {
+          await targetCharacteristic.writeValue(chunk);
+        }
+        await new Promise(r => setTimeout(r, 20));
+      }
 
       setIsPrinting(false);
       alert('Struk berhasil dicetak melalui Printer Thermal Bluetooth!');
@@ -454,7 +479,7 @@ export default function App() {
     } catch (error) {
       console.error('Print error:', error);
       setIsPrinting(false);
-      alert('Gagal mencetak ke printer Bluetooth atau dibatalkan oleh pengguna.');
+      alert('Gagal mencetak ke printer Bluetooth. Pastikan printer menyala, sudah dipairing di HP, dan pilih perangkat saat pop-up muncul.');
     }
   };
 
@@ -468,16 +493,110 @@ export default function App() {
     confetti({ particleCount: 70, spread: 70, origin: { y: 0.6 } });
   };
 
+  // Robust HTML5 2D Canvas Receipt Generator for PNG Download & Share
+  const generateReceiptCanvas = (): HTMLCanvasElement => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 600;
+    canvas.height = 920;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return canvas;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = '#000000';
+    ctx.font = 'bold 22px "Courier New", monospace';
+    ctx.textAlign = 'center';
+
+    let y = 45;
+    ctx.fillText('E-SAMSAT JAWA TIMUR', canvas.width / 2, y);
+    y += 28;
+    ctx.font = 'bold 18px "Courier New", monospace';
+    ctx.fillText('BUKTI PEMBAYARAN PAJAK KENDARAAN', canvas.width / 2, y);
+    y += 24;
+    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.fillText('Layanan Samsat Keliling / PPOB Resmi', canvas.width / 2, y);
+    y += 18;
+
+    ctx.strokeStyle = '#000000';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(40, y);
+    ctx.lineTo(canvas.width - 40, y);
+    ctx.stroke();
+    y += 28;
+
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 14px "Courier New", monospace';
+    const drawRow = (label: string, val: string) => {
+      ctx.fillText(label, 50, y);
+      ctx.textAlign = 'center';
+      ctx.fillText(':', 220, y);
+      ctx.textAlign = 'left';
+      ctx.fillText(val, 240, y);
+      y += 28;
+    };
+
+    drawRow('Tanggal', formData.tanggal.replace('T', ' '));
+    drawRow('No. Ref', formData.noRef);
+    drawRow('Bukti Bayar', formData.noBukti);
+    drawRow('Status', formData.status);
+
+    ctx.beginPath();
+    ctx.moveTo(40, y);
+    ctx.lineTo(canvas.width - 40, y);
+    ctx.stroke();
+    y += 28;
+
+    drawRow('Atas Nama', formData.atasNama);
+    drawRow('No. Polisi', formData.noPolisi);
+    drawRow('Masa Laku', formData.tanggalMasaLaku);
+    drawRow('No. Mesin', formData.noMesin);
+
+    ctx.beginPath();
+    ctx.moveTo(40, y);
+    ctx.lineTo(canvas.width - 40, y);
+    ctx.stroke();
+    y += 28;
+
+    drawRow('Total Bayar', `Rp ${formData.totalBayar.toLocaleString('id-ID')}`);
+    drawRow('Biaya admin loket', `Rp ${formData.biayaAdmin.toLocaleString('id-ID')}`);
+    drawRow('Cetak e-TBPKP', `Rp ${formData.cetakEtbpkp.toLocaleString('id-ID')}`);
+
+    ctx.beginPath();
+    ctx.moveTo(40, y);
+    ctx.lineTo(canvas.width - 40, y);
+    ctx.stroke();
+    y += 30;
+
+    ctx.font = 'bold 16px "Courier New", monospace';
+    drawRow('JUMLAH DIBAYAR', `Rp ${formData.jumlahHarusDibayar.toLocaleString('id-ID')}`);
+
+    y += 10;
+    ctx.beginPath();
+    ctx.moveTo(40, y);
+    ctx.lineTo(canvas.width - 40, y);
+    ctx.stroke();
+    y += 28;
+
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.fillText(`Agen: ${formData.namaAgen}`, canvas.width / 2, y);
+    y += 24;
+    ctx.fillText('Terima Kasih Atas Pembayaran Anda', canvas.width / 2, y);
+    y += 24;
+    ctx.fillText('Simpan Struk Ini Sebagai Bukti Sah', canvas.width / 2, y);
+    y += 26;
+    ctx.font = 'bold 12px "Courier New", monospace';
+    ctx.fillText('=== e-Samsat Jatim Kasir PWA ===', canvas.width / 2, y);
+
+    return canvas;
+  };
+
   // Export Receipt as PNG Image
   const downloadReceiptImage = async () => {
-    if (!receiptRef.current) return;
     try {
-      const canvas = await html2canvas(receiptRef.current, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        logging: false,
-        useCORS: true
-      });
+      const canvas = generateReceiptCanvas();
       const image = canvas.toDataURL('image/png');
       
       const a = document.createElement('a');
@@ -496,13 +615,8 @@ export default function App() {
 
   // Share Receipt via Web Share API
   const shareReceiptImage = async () => {
-    if (!receiptRef.current) return;
     try {
-      const canvas = await html2canvas(receiptRef.current, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        logging: false
-      });
+      const canvas = generateReceiptCanvas();
       canvas.toBlob(async (blob) => {
         if (!blob) return;
         const file = new File([blob], `Struk-eSamsat-${formData.noPolisi.replace(/\s+/g, '-')}.png`, { type: 'image/png' });
@@ -520,7 +634,6 @@ export default function App() {
             }
           }
         } else {
-          // Fallback download if share API not supported
           downloadReceiptImage();
         }
       }, 'image/png');
