@@ -267,11 +267,22 @@ export default function App() {
           const match = upperLine.match(/\d{2}[-/]\d{2}[-/]\d{4}/);
           if (match) extractedMasaLaku = match[0].replace(/\//g, '-');
         }
-      } else if (leftKey.includes('TOTAL') || leftKey.includes('JUMLAH') || leftKey.includes('BAYAR') || leftKey.includes('TAGIHAN') || leftKey.includes('PKB')) {
-        const match = rightVal.match(/[\d]{1,3}(?:[.,]\d{3})+|\d{4,9}/);
+      } else if (leftKey.includes('TAGIHAN') || leftKey.includes('PKB')) {
+        // Skip intermediate items for total bayar
+      }
+    }
+
+    // Explicit pass for Total Bayar line to ensure nominal on the right of Total Bayar is captured
+    for (const line of lines) {
+      const up = line.toUpperCase();
+      if (up.includes('TOTAL BAYAR') || (up.includes('TOTAL') && up.includes('BAYAR'))) {
+        const match = line.match(/(?:Rp\.?|\b)\s*([\d]{1,3}(?:[.,]\d{3})+|\d{4,9})/);
         if (match) {
-          const val = parseInt(match[0].replace(/[^\d]/g, ''), 10);
-          if (val > 10000) extractedTotalBayar = val;
+          const val = parseInt(match[1].replace(/[^\d]/g, ''), 10);
+          if (val > 5000) {
+            extractedTotalBayar = val;
+            break;
+          }
         }
       }
     }
@@ -856,41 +867,88 @@ export default function App() {
               <div className="flex justify-center overflow-x-auto py-2">
                 <div 
                   ref={receiptRef} 
-                  className="bg-white text-black font-bold p-6 rounded-none shadow-2xl w-[340px] font-mono text-xs leading-tight border border-slate-300 select-none text-center"
+                  className="bg-white text-black font-bold p-6 rounded-none shadow-2xl w-[350px] font-mono text-xs leading-tight border border-slate-300 select-none"
                   style={{ fontFamily: '"Courier New", Courier, monospace' }}
                 >
-                  <div className="pb-3 border-b border-dashed border-black space-y-1">
+                  <div className="pb-3 border-b border-dashed border-black space-y-1 text-center">
                     <p className="font-extrabold text-sm tracking-wider text-black">E-SAMSAT JAWA TIMUR</p>
                     <p className="text-[11px] font-extrabold text-black">BUKTI PEMBAYARAN PAJAK KENDARAAN</p>
                     <p className="text-[10px] font-bold text-black">Layanan Samsat Keliling / PPOB Resmi</p>
                   </div>
 
                   <div className="py-2 border-b border-dashed border-black space-y-1 text-[11px] font-bold text-black">
-                    <div>Tanggal Transaksi: {formData.tanggal.replace('T', ' ')}</div>
-                    <div>No. Ref: {formData.noRef}</div>
-                    <div>Bukti Bayar: {formData.noBukti}</div>
-                    <div>Status: {formData.status}</div>
+                    <div className="grid grid-cols-[130px_14px_1fr]">
+                      <span className="text-left">Tanggal</span>
+                      <span className="text-center">:</span>
+                      <span className="text-left">{formData.tanggal.replace('T', ' ')}</span>
+                    </div>
+                    <div className="grid grid-cols-[130px_14px_1fr]">
+                      <span className="text-left">No. Ref</span>
+                      <span className="text-center">:</span>
+                      <span className="text-left">{formData.noRef}</span>
+                    </div>
+                    <div className="grid grid-cols-[130px_14px_1fr]">
+                      <span className="text-left">Bukti Bayar</span>
+                      <span className="text-center">:</span>
+                      <span className="text-left">{formData.noBukti}</span>
+                    </div>
+                    <div className="grid grid-cols-[130px_14px_1fr]">
+                      <span className="text-left">Status</span>
+                      <span className="text-center">:</span>
+                      <span className="text-left">{formData.status}</span>
+                    </div>
                   </div>
 
                   <div className="py-2 border-b border-dashed border-black space-y-1 text-[11px] font-bold text-black">
-                    <div>Atas Nama: {formData.atasNama}</div>
-                    <div>No. Polisi: {formData.noPolisi}</div>
-                    <div>Masa Laku: {formData.tanggalMasaLaku}</div>
-                    <div>No. Mesin: {formData.noMesin}</div>
+                    <div className="grid grid-cols-[130px_14px_1fr]">
+                      <span className="text-left">Atas Nama</span>
+                      <span className="text-center">:</span>
+                      <span className="text-left">{formData.atasNama}</span>
+                    </div>
+                    <div className="grid grid-cols-[130px_14px_1fr]">
+                      <span className="text-left">No. Polisi</span>
+                      <span className="text-center">:</span>
+                      <span className="text-left">{formData.noPolisi}</span>
+                    </div>
+                    <div className="grid grid-cols-[130px_14px_1fr]">
+                      <span className="text-left">Masa Laku</span>
+                      <span className="text-center">:</span>
+                      <span className="text-left">{formData.tanggalMasaLaku}</span>
+                    </div>
+                    <div className="grid grid-cols-[130px_14px_1fr]">
+                      <span className="text-left">No. Mesin</span>
+                      <span className="text-center">:</span>
+                      <span className="text-left">{formData.noMesin}</span>
+                    </div>
                   </div>
 
                   <div className="py-2 border-b border-dashed border-black space-y-1 text-[11px] font-bold text-black">
-                    <div>Total Bayar: Rp {formData.totalBayar.toLocaleString('id-ID')}</div>
-                    <div>Biaya admin loket: Rp {formData.biayaAdmin.toLocaleString('id-ID')}</div>
-                    <div>Cetak e-TBPKP: Rp {formData.cetakEtbpkp.toLocaleString('id-ID')}</div>
+                    <div className="grid grid-cols-[130px_14px_1fr]">
+                      <span className="text-left">Total Bayar</span>
+                      <span className="text-center">:</span>
+                      <span className="text-left">Rp {formData.totalBayar.toLocaleString('id-ID')}</span>
+                    </div>
+                    <div className="grid grid-cols-[130px_14px_1fr]">
+                      <span className="text-left">Biaya admin loket</span>
+                      <span className="text-center">:</span>
+                      <span className="text-left">Rp {formData.biayaAdmin.toLocaleString('id-ID')}</span>
+                    </div>
+                    <div className="grid grid-cols-[130px_14px_1fr]">
+                      <span className="text-left">Cetak e-TBPKP</span>
+                      <span className="text-center">:</span>
+                      <span className="text-left">Rp {formData.cetakEtbpkp.toLocaleString('id-ID')}</span>
+                    </div>
                   </div>
 
                   <div className="py-2 border-b border-dashed border-black text-xs font-extrabold text-black">
-                    <div>JUMLAH YG HARUS DIBAYAR:</div>
-                    <div className="text-sm">Rp {formData.jumlahHarusDibayar.toLocaleString('id-ID')}</div>
+                    <div className="grid grid-cols-[130px_14px_1fr]">
+                      <span className="text-left">JUMLAH DIBAYAR</span>
+                      <span className="text-center">:</span>
+                      <span className="text-left text-sm">Rp {formData.jumlahHarusDibayar.toLocaleString('id-ID')}</span>
+                    </div>
                   </div>
 
-                  <div className="pt-3 space-y-1 text-[10px] font-bold text-black">
+                  <div className="pt-3 space-y-1 text-[10px] font-bold text-center text-black">
                     <p className="font-extrabold text-black">Agen: {formData.namaAgen}</p>
                     <p className="font-bold text-black">Terima Kasih Atas Pembayaran Anda</p>
                     <p className="font-bold text-black">Simpan Struk Ini Sebagai Bukti Sah</p>
