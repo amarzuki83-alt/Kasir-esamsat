@@ -61,18 +61,18 @@ export default function App() {
   // Transaction form state
   const [formData, setFormData] = useState<TransactionData>({
     id: '',
-    tanggal: new Date().toISOString().slice(0, 16),
-    noRef: 'REF-' + Math.floor(100000 + Math.random() * 900000),
-    status: 'BERHASIL / LUNAS',
-    noBukti: 'TRX-' + Math.floor(10000000 + Math.random() * 90000000),
-    atasNama: 'BUDI SANTOSO',
-    noPolisi: 'L 1234 AB',
-    tanggalMasaLaku: '15-11-2027',
-    noMesin: '1NR-FE1234567',
-    totalBayar: 2500000,
+    tanggal: '2026-11-21T17:01',
+    noRef: 'IVR/20261121/XXVI/XI/3264397733',
+    status: 'Transaksi berhasil',
+    noBukti: '7517952553636221',
+    atasNama: 'NURIL AGUSTINA',
+    noPolisi: 'S4782JAI',
+    tanggalMasaLaku: '26-11-2027',
+    noMesin: 'KF41E1829094',
+    totalBayar: 326000,
     biayaAdmin: settings.biayaAdmin,
     cetakEtbpkp: settings.cetakEtbpkp,
-    jumlahHarusDibayar: 2500000 + settings.biayaAdmin + settings.cetakEtbpkp,
+    jumlahHarusDibayar: 326000 + settings.biayaAdmin + settings.cetakEtbpkp,
     namaAgen: settings.namaAgen,
     createdAt: new Date().toISOString(),
   });
@@ -221,6 +221,7 @@ export default function App() {
     let extractedNoRef = '';
     let extractedBuktiBayar = '';
     let extractedNoMesin = '';
+    let extractedMasaLaku = '';
     let extractedTotalBayar = 0;
 
     for (const line of lines) {
@@ -259,6 +260,13 @@ export default function App() {
           const clean = upperLine.replace(/MESIN|RANGKA|NOMOR|NO\.?/g, '').replace(/[:|]/g, '').trim();
           if (clean) extractedNoMesin = clean;
         }
+      } else if (leftKey.includes('MASA LAKU') || leftKey.includes('BERLAKU') || leftKey.includes('JATUH TEMPO')) {
+        if (rightVal) {
+          extractedMasaLaku = rightVal.replace(/\//g, '-');
+        } else {
+          const match = upperLine.match(/\d{2}[-/]\d{2}[-/]\d{4}/);
+          if (match) extractedMasaLaku = match[0].replace(/\//g, '-');
+        }
       } else if (leftKey.includes('TOTAL') || leftKey.includes('JUMLAH') || leftKey.includes('BAYAR') || leftKey.includes('TAGIHAN') || leftKey.includes('PKB')) {
         const match = rightVal.match(/[\d]{1,3}(?:[.,]\d{3})+|\d{4,9}/);
         if (match) {
@@ -275,6 +283,7 @@ export default function App() {
     const finalNoRef = extractedNoRef || 'REF-' + Math.floor(100000 + Math.random() * 900000);
     const finalBuktiBayar = extractedBuktiBayar || formData.noBukti;
     const finalNoMesin = extractedNoMesin || formData.noMesin;
+    const finalMasaLaku = extractedMasaLaku || formData.tanggalMasaLaku;
 
     const numbers = upperText.match(/(?:Rp\.?|\b)\s*([\d]{1,3}(?:[.,]\d{3})+|\d{4,9})/g);
     let totalByr = extractedTotalBayar || 2500000;
@@ -291,6 +300,7 @@ export default function App() {
       atasNama: finalAtasNama,
       noMesin: finalNoMesin,
       totalBayar: totalByr,
+      tanggalMasaLaku: finalMasaLaku.replace(/\//g, '-'),
       tanggal: new Date().toISOString().slice(0, 16)
     }));
   };
@@ -298,21 +308,22 @@ export default function App() {
   const loadSampleData = () => {
     setFormData({
       id: '',
-      tanggal: new Date().toISOString().slice(0, 16),
-      noRef: 'REF-JTM-' + Math.floor(100000 + Math.random() * 900000),
-      status: 'BERHASIL / LUNAS',
-      noBukti: 'ETB-' + Math.floor(10000000 + Math.random() * 90000000),
-      atasNama: 'SITI AMINAH, DR.',
-      noPolisi: 'W 4589 QJ',
-      tanggalMasaLaku: '12-08-2028',
-      noMesin: 'P10A1-1239842',
-      totalBayar: 2318000,
+      tanggal: '2026-11-21T17:01',
+      noRef: 'IVR/20261121/XXVI/XI/3264397733',
+      status: 'Transaksi berhasil',
+      noBukti: '7517952553636221',
+      atasNama: 'NURIL AGUSTINA',
+      noPolisi: 'S4782JAI',
+      tanggalMasaLaku: '26-11-2027',
+      noMesin: 'KF41E1829094',
+      totalBayar: 326000,
       biayaAdmin: settings.biayaAdmin,
       cetakEtbpkp: settings.cetakEtbpkp,
-      jumlahHarusDibayar: 2318000 + settings.biayaAdmin + settings.cetakEtbpkp,
+      jumlahHarusDibayar: 326000 + settings.biayaAdmin + settings.cetakEtbpkp,
       namaAgen: settings.namaAgen,
       createdAt: new Date().toISOString(),
     });
+    setUploadedImage('/assets/aistudio/IMG-20261121-WA0013_40d74996.jpg');
     setActiveTab('preview');
     confetti({ particleCount: 40, spread: 50, origin: { y: 0.8 } });
   };
@@ -845,74 +856,41 @@ export default function App() {
               <div className="flex justify-center overflow-x-auto py-2">
                 <div 
                   ref={receiptRef} 
-                  className="bg-white text-slate-900 p-6 rounded-none shadow-2xl w-[340px] font-mono text-xs leading-tight border border-slate-300 select-none"
+                  className="bg-white text-black font-bold p-6 rounded-none shadow-2xl w-[340px] font-mono text-xs leading-tight border border-slate-300 select-none text-center"
                   style={{ fontFamily: '"Courier New", Courier, monospace' }}
                 >
-                  <div className="text-center pb-3 border-b border-dashed border-black space-y-1">
+                  <div className="pb-3 border-b border-dashed border-black space-y-1">
                     <p className="font-extrabold text-sm tracking-wider text-black">E-SAMSAT JAWA TIMUR</p>
                     <p className="text-[11px] font-extrabold text-black">BUKTI PEMBAYARAN PAJAK KENDARAAN</p>
                     <p className="text-[10px] font-bold text-black">Layanan Samsat Keliling / PPOB Resmi</p>
                   </div>
 
                   <div className="py-2 border-b border-dashed border-black space-y-1 text-[11px] font-bold text-black">
-                    <div className="flex justify-between">
-                      <span className="text-black font-bold">Tanggal Transaksi:</span>
-                      <span className="font-bold text-black">{formData.tanggal.replace('T', ' ')}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-black font-bold">No. Ref:</span>
-                      <span className="font-bold text-black">{formData.noRef}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-black font-bold">Bukti Bayar:</span>
-                      <span className="font-bold text-black">{formData.noBukti}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-black font-bold">Status:</span>
-                      <span className="font-bold text-black">{formData.status}</span>
-                    </div>
+                    <div>Tanggal Transaksi: {formData.tanggal.replace('T', ' ')}</div>
+                    <div>No. Ref: {formData.noRef}</div>
+                    <div>Bukti Bayar: {formData.noBukti}</div>
+                    <div>Status: {formData.status}</div>
                   </div>
 
                   <div className="py-2 border-b border-dashed border-black space-y-1 text-[11px] font-bold text-black">
-                    <div className="flex justify-between">
-                      <span className="text-black font-bold">Atas Nama:</span>
-                      <span className="font-bold text-black truncate max-w-[180px] text-right">{formData.atasNama}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-black font-bold">No. Polisi:</span>
-                      <span className="font-bold text-black">{formData.noPolisi}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-black font-bold">Masa Laku:</span>
-                      <span className="font-bold text-black text-right">{formData.tanggalMasaLaku}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-black font-bold">No. Mesin:</span>
-                      <span className="font-bold text-black text-right">{formData.noMesin}</span>
-                    </div>
+                    <div>Atas Nama: {formData.atasNama}</div>
+                    <div>No. Polisi: {formData.noPolisi}</div>
+                    <div>Masa Laku: {formData.tanggalMasaLaku}</div>
+                    <div>No. Mesin: {formData.noMesin}</div>
                   </div>
 
                   <div className="py-2 border-b border-dashed border-black space-y-1 text-[11px] font-bold text-black">
-                    <div className="flex justify-between">
-                      <span className="text-black font-bold">Total Bayar:</span>
-                      <span className="text-black font-bold">Rp {formData.totalBayar.toLocaleString('id-ID')}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-black font-bold">Biaya admin loket:</span>
-                      <span className="text-black font-bold">Rp {formData.biayaAdmin.toLocaleString('id-ID')}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-black font-bold">Cetak e-TBPKP:</span>
-                      <span className="text-black font-bold">Rp {formData.cetakEtbpkp.toLocaleString('id-ID')}</span>
-                    </div>
+                    <div>Total Bayar: Rp {formData.totalBayar.toLocaleString('id-ID')}</div>
+                    <div>Biaya admin loket: Rp {formData.biayaAdmin.toLocaleString('id-ID')}</div>
+                    <div>Cetak e-TBPKP: Rp {formData.cetakEtbpkp.toLocaleString('id-ID')}</div>
                   </div>
 
-                  <div className="py-2 border-b border-dashed border-black text-xs font-extrabold flex justify-between items-center text-black">
-                    <span className="text-black font-extrabold">JUMLAH YG HARUS DIBAYAR:</span>
-                    <span className="text-sm text-black font-extrabold">Rp {formData.jumlahHarusDibayar.toLocaleString('id-ID')}</span>
+                  <div className="py-2 border-b border-dashed border-black text-xs font-extrabold text-black">
+                    <div>JUMLAH YG HARUS DIBAYAR:</div>
+                    <div className="text-sm">Rp {formData.jumlahHarusDibayar.toLocaleString('id-ID')}</div>
                   </div>
 
-                  <div className="pt-3 text-center space-y-1 text-[10px] font-bold text-black">
+                  <div className="pt-3 space-y-1 text-[10px] font-bold text-black">
                     <p className="font-extrabold text-black">Agen: {formData.namaAgen}</p>
                     <p className="font-bold text-black">Terima Kasih Atas Pembayaran Anda</p>
                     <p className="font-bold text-black">Simpan Struk Ini Sebagai Bukti Sah</p>
